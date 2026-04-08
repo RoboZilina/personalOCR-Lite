@@ -6,6 +6,16 @@ import {
     applyUIToSettings 
 } from './settings.js';
 
+import { 
+    setPaddleProvider, 
+    loadPaddleModels, 
+    runPaddleOCR, 
+    disposePaddle, 
+    getPaddleStatus 
+} from './js/paddle/paddle_core.js';
+
+import { PaddleProviderV3 } from './js/paddle/paddle_v3.js';
+
 // DOM Elements
 const selectWindowBtn = document.getElementById('select-window-btn');
 const vnVideo = document.getElementById('vn-video');
@@ -412,25 +422,35 @@ async function captureFrame(rect) {
     const model = langSelector.value;
 
     try {
-        await ensureModelLoaded(model);
-        if (mode === 'last_resort') {
-            const result = await runLastResortOCR(crop, myGen);
+        if (mode === 'paddle') {
+            const upscaled = lr_upscale(crop, parseFloat(upscaleSlider.value));
+            const padded = lr_addPadding(upscaled, 10);
+            updateDebugThumb(padded);
+            setOCRStatus('processing', '🟡 Reading (PaddleOCR)...');
+            const result = await runPaddleOCR(padded);
             if (captureGeneration !== myGen) return;
-            updateDebugThumb(result.canvas);
-            addOCRResultToUI(result.text);
-        } else if (mode === 'multi') {
-            const result = await runMultiPassOCR(crop, myGen);
-            if (captureGeneration !== myGen) return;
-            updateDebugThumb(result.canvas);
-            addOCRResultToUI(result.text);
+            if (result && result.text) addOCRResultToUI(result.text);
         } else {
-            const processed = applyPreprocessing(crop, mode);
-            if (captureGeneration !== myGen) return;
-            updateDebugThumb(processed);
-            setOCRStatus('processing', '🟡 Reading...');
-            const result = await runTesseract(processed);
-            if (captureGeneration !== myGen) return;
-            addOCRResultToUI(result.text);
+            await ensureModelLoaded(model);
+            if (mode === 'last_resort') {
+                const result = await runLastResortOCR(crop, myGen);
+                if (captureGeneration !== myGen) return;
+                updateDebugThumb(result.canvas);
+                addOCRResultToUI(result.text);
+            } else if (mode === 'multi') {
+                const result = await runMultiPassOCR(crop, myGen);
+                if (captureGeneration !== myGen) return;
+                updateDebugThumb(result.canvas);
+                addOCRResultToUI(result.text);
+            } else {
+                const processed = applyPreprocessing(crop, mode);
+                if (captureGeneration !== myGen) return;
+                updateDebugThumb(processed);
+                setOCRStatus('processing', '🟡 Reading...');
+                const result = await runTesseract(processed);
+                if (captureGeneration !== myGen) return;
+                addOCRResultToUI(result.text);
+            }
         }
     } catch (err) { setOCRStatus('error', '🔴 OCR Error'); }
     finally { isProcessing = false; if (isOcrReady) setOCRStatus('ready', '🟢 OCR Ready'); }
@@ -915,9 +935,17 @@ function initHelpModal() {
 // 6. Settings & PaddleOCR Implementation
 // ==========================================
 
-function loadPaddleOCR() {
-    console.log("[VN-OCR] PaddleOCR lazy-load placeholder triggered.");
-    setOCRStatus('ready', '🟢 PaddleOCR Placeholder');
+async function loadPaddleOCR() {
+    try {
+        setPaddleProvider(PaddleProviderV3);
+        await loadPaddleModels((msg) => setOCRStatus('loading', msg));
+        const status = getPaddleStatus();
+        setOCRStatus('ready', `🟢 PaddleOCR ${status.version} Ready`);
+    } catch (err) {
+        setOCRStatus('error', '🔴 PaddleOCR Load Failed');
+        if (engineSelector) engineSelector.value = previousMode;
+        setSetting('ocrMode', previousMode);
+    }
 }
 
 // 6.1 Initialization
@@ -939,6 +967,7 @@ let previousMode = engineSelector?.value || "default_mini";
 engineSelector?.addEventListener('change', () => {
     const newMode = engineSelector.value;
     if (newMode === 'paddle') {
+        if (ocrWorker) { ocrWorker.terminate(); ocrWorker = null; }
         if (getSetting('showHeavyWarning')) {
             document.getElementById('paddle-modal').classList.add('active');
             return;
@@ -947,6 +976,7 @@ engineSelector?.addEventListener('change', () => {
             loadPaddleOCR();
         }
     } else {
+        disposePaddle();
         setSetting('ocrMode', newMode);
         applyUIToSettings();
     }

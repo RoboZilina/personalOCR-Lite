@@ -108,7 +108,7 @@ export function applySettingsToUI() {
     // Note: showHeavyWarning is used for logic, not a direct UI element usually,
     // but we can bind it if a checkbox exists in a settings menu.
     const warningCheckbox = document.querySelector("#heavy-warning-checkbox");
-    if (warningCheckbox) warningCheckbox.checked = currentSettings.showHeavyWarning;
+    if (warningCheckbox) warningCheckbox.checked = !currentSettings.showHeavyWarning;
 }
 
 /**

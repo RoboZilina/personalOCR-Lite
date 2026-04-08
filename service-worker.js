@@ -1,14 +1,18 @@
 // === VERSION — Update CACHE_NAME on every release ===
 // This is the ONLY version string in the project.
 // Serve this file with Cache-Control: no-cache in production.
-const CACHE_NAME = 'vn-ocr-cache-v1.1.0';
+const CACHE_NAME = 'vn-ocr-cache-v1.2.0';
 const ASSETS = [
     './',
     './index.html',
     './styles.css',
     './app.js',
-    './manifest.json'
+    './settings.js',
+    './manifest.json',
+    './js/paddle/paddle_core.js',
+    './js/paddle/paddle_v3.js'
 ];
+const MODEL_CACHE_NAME = 'vn-ocr-models-v1';
 
 self.addEventListener('install', (event) => {
     self.skipWaiting();
@@ -26,7 +30,10 @@ self.addEventListener('install', (event) => {
 self.addEventListener('activate', (event) => {
     event.waitUntil(
         caches.keys().then(keys =>
-            Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)))
+            Promise.all(keys
+                .filter(k => k !== CACHE_NAME && k !== MODEL_CACHE_NAME)
+                .map(k => caches.delete(k))
+            )
         ).then(() => self.clients.claim())
     );
 });
@@ -37,6 +44,22 @@ self.addEventListener('fetch', (event) => {
     // CDN requests: network-only (no caching — avoids freezing versions, conflicts with SRI)
     if (url.origin !== location.origin) {
         event.respondWith(fetch(event.request));
+        return;
+    }
+
+    // Model files and ONNX runtime: cache-first with dedicated long-lived cache
+    if (url.pathname.includes('/models/paddle/') || url.pathname.includes('/js/ort')) {
+        event.respondWith(
+            caches.open(MODEL_CACHE_NAME).then(cache =>
+                cache.match(event.request).then(cached => {
+                    if (cached) return cached;
+                    return fetch(event.request).then(response => {
+                        if (response.ok) cache.put(event.request, response.clone());
+                        return response;
+                    });
+                })
+            )
+        );
         return;
     }
 
