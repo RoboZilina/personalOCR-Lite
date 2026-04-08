@@ -1,3 +1,11 @@
+import { 
+    loadSettings, 
+    getSetting, 
+    setSetting, 
+    applySettingsToUI, 
+    applyUIToSettings 
+} from './settings.js';
+
 // DOM Elements
 const selectWindowBtn = document.getElementById('select-window-btn');
 const vnVideo = document.getElementById('vn-video');
@@ -16,34 +24,8 @@ const autoToggle = document.getElementById('auto-capture-toggle');
 const upscaleSlider = document.getElementById('upscale-slider');
 const upscaleVal = document.getElementById('upscale-val');
 
-// Phase 3: Minimal Settings Wrapper
-const settings = {
-    get: (key, def) => {
-        const val = localStorage.getItem('vn-ocr-' + key);
-        return val === null ? def : JSON.parse(val);
-    },
-    set: (key, val) => localStorage.setItem('vn-ocr-' + key, JSON.stringify(val))
-};
-
-// Phase 4: Theme Management
-const themeToggle = document.getElementById('theme-toggle');
-function updateThemeUI(theme) {
-    if (!themeToggle) return;
-    themeToggle.textContent = theme === 'light' ? '🌙' : '🌞';
-    document.body.classList.toggle('light-theme', theme === 'light');
-}
-if (themeToggle) {
-    themeToggle.onclick = () => {
-        const current = document.body.classList.contains('light-theme') ? 'light' : 'dark';
-        const next = current === 'light' ? 'dark' : 'light';
-        settings.set('theme', next);
-        updateThemeUI(next);
-    };
-}
-
-// Phase 5: PWA Install Management
+// Phase 5: PWA Install Management (Fixed duplication)
 let deferredPrompt = null;
-
 window.addEventListener('beforeinstallprompt', (e) => {
     e.preventDefault();
     deferredPrompt = e;
@@ -55,6 +37,7 @@ document.getElementById('install-btn')?.addEventListener('click', async () => {
     await deferredPrompt.userChoice;
     deferredPrompt = null;
 });
+
 
 
 
@@ -157,8 +140,12 @@ async function initOCR() {
 initOCR();
 
 if (langSelector) {
-    langSelector.addEventListener('change', () => ensureModelLoaded(langSelector.value));
+    langSelector.addEventListener('change', () => {
+        applyUIToSettings();
+        ensureModelLoaded(langSelector.value);
+    });
 }
+
 
 if (panicBtn) {
     panicBtn.onclick = () => {
@@ -202,7 +189,7 @@ if (historyContent) {
         }
     });
     historyContent.addEventListener('mouseup', () => {
-        if (!settings.get('auto-copy', true)) return;
+        if (!getSetting('autoCopy')) return;
         const sel = window.getSelection().toString().trim();
         if (!sel) return;
         navigator.clipboard.writeText(sel).then(() => {
@@ -214,7 +201,7 @@ if (historyContent) {
 
 if (latestText) {
     latestText.addEventListener('mouseup', () => {
-        if (!settings.get('auto-copy', true)) return;
+        if (!getSetting('autoCopy')) return;
         const sel = window.getSelection().toString().trim();
         if (!sel) return;
         navigator.clipboard.writeText(sel).then(() => {
@@ -347,9 +334,10 @@ function checkAutoCapture() {
 if (autoToggle) {
     autoToggle.onchange = () => {
         const label = autoToggle.nextElementSibling;
-        settings.set('auto-capture', autoToggle.checked);
+        setSetting('autoCapture', autoToggle.checked);
         if (autoToggle.checked) {
             if (label) label.textContent = "auto re-capture ON";
+            if (autoCaptureTimer) clearInterval(autoCaptureTimer);
             autoCaptureTimer = setInterval(checkAutoCapture, 500);
         } else {
             if (label) label.textContent = "auto re-capture OFF";
@@ -380,7 +368,7 @@ function denormalizeSelection(rect, videoEl, overlayEl) {
     const y = ((rectY - offsetY) / actualHeight) * vHeight;
     const w = (rectW / actualWidth) * vWidth;
     const h = (rectH / actualHeight) * vHeight;
-    if (settings.get('debug', false)) console.debug('[VN-OCR] selection:', { x, y, w, h, vWidth, vHeight });
+    if (getSetting('debug')) console.debug('[VN-OCR] selection:', { x, y, w, h, vWidth, vHeight });
     return { x, y, w, h };
 }
 
@@ -798,6 +786,7 @@ function sharpenCanvas(canvas) {
 async function runLastResortOCR(cropCanvas, gen) {
     setOCRStatus('processing', '⚡ Isolating Textbox...');
     const textbox = lr_isolateTextbox(cropCanvas);
+
     const padded = lr_addPadding(textbox, 1);
     setOCRStatus('processing', '⚡ Reconstructing Strokes...');
     const base = lr_reconstructStrokes(lr_upscale(padded, 2));
@@ -921,10 +910,85 @@ function initHelpModal() {
     window.onclick = (e) => { if (e.target === helpModal) helpModal.classList.remove('active'); };
     window.onkeydown = (e) => { if (e.key === 'Escape') helpModal.classList.remove('active'); };
 }
-document.addEventListener('DOMContentLoaded', () => {
-    initHelpModal();
 
-    // Service Worker registration with kill-switch escape hatches
+// ==========================================
+// 6. Settings & PaddleOCR Implementation
+// ==========================================
+
+function loadPaddleOCR() {
+    console.log("[VN-OCR] PaddleOCR lazy-load placeholder triggered.");
+    setOCRStatus('ready', '🟢 PaddleOCR Placeholder');
+}
+
+// 6.1 Initialization
+function initSettings() {
+    loadSettings();
+    applySettingsToUI();
+
+    // Startup Banner Logic
+    const mode = getSetting('ocrMode');
+    const showWarning = getSetting('showHeavyWarning');
+    if (mode === 'paddle' && showWarning) {
+        document.getElementById('startup-banner')?.classList.add('active');
+    }
+}
+
+// 6.2 PaddleOCR Toggle and Warning Logic
+let previousMode = engineSelector?.value || "default_mini";
+
+engineSelector?.addEventListener('change', () => {
+    const newMode = engineSelector.value;
+    if (newMode === 'paddle') {
+        if (getSetting('showHeavyWarning')) {
+            document.getElementById('paddle-modal').classList.add('active');
+            return;
+        } else {
+            setSetting('ocrMode', 'paddle');
+            loadPaddleOCR();
+        }
+    } else {
+        setSetting('ocrMode', newMode);
+        applyUIToSettings();
+    }
+    previousMode = newMode;
+});
+
+
+// 6.3 Modal Event Listeners
+document.getElementById('paddle-continue')?.addEventListener('click', () => {
+    const doNotShowAgain = document.getElementById('heavy-warning-checkbox').checked;
+    if (doNotShowAgain) setSetting('showHeavyWarning', false);
+    setSetting('ocrMode', 'paddle');
+    document.getElementById('paddle-modal').classList.remove('active');
+    loadPaddleOCR();
+});
+
+document.getElementById('paddle-cancel')?.addEventListener('click', () => {
+    if (engineSelector) engineSelector.value = previousMode;
+    document.getElementById('paddle-modal').classList.remove('active');
+});
+
+// 6.4 Banner Event Listeners
+document.getElementById('banner-switch-default')?.addEventListener('click', () => {
+    setSetting('ocrMode', 'default_mini');
+    applySettingsToUI();
+    document.getElementById('startup-banner').classList.remove('active');
+});
+
+document.getElementById('banner-nocall-checkbox')?.addEventListener('change', (e) => {
+    setSetting('showHeavyWarning', !e.target.checked);
+});
+
+document.getElementById('banner-close')?.addEventListener('click', () => {
+    document.getElementById('startup-banner').classList.remove('active');
+});
+
+// 6.5 Global Initialization
+function globalInitialize() {
+    initHelpModal();
+    initSettings();
+
+    // Service Worker
     if ('serviceWorker' in navigator) {
         const disableViaParam = new URLSearchParams(location.search).has('no-sw');
         const disableViaStorage = localStorage.getItem('vn-ocr-disable-sw') === 'true';
@@ -932,25 +996,8 @@ document.addEventListener('DOMContentLoaded', () => {
             navigator.serviceWorker.getRegistrations().then(regs => regs.forEach(r => r.unregister()));
         } else {
             navigator.serviceWorker.register('service-worker.js').catch(e => console.warn('SW registration failed:', e));
-            navigator.serviceWorker.addEventListener('controllerchange', () => {
-                const bar = document.createElement('div');
-                bar.style.cssText = 'position:fixed;top:0;left:0;right:0;padding:10px;background:var(--accent);color:#000;text-align:center;font-weight:700;z-index:99999;cursor:pointer;';
-                bar.textContent = 'Update available — click to refresh';
-                bar.onclick = () => location.reload();
-                document.body.appendChild(bar);
-            });
         }
     }
-
-    const autoState = settings.get('auto-capture', true);
-    if (autoToggle) {
-        autoToggle.checked = autoState;
-        autoToggle.onchange();
-    }
-
-    const storedTheme = settings.get('theme', null);
-    const systemTheme = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
-    updateThemeUI(storedTheme || systemTheme);
 
     if (window.matchMedia('(display-mode: standalone)').matches || navigator.standalone) {
         const installBtn = document.getElementById('install-btn');
@@ -960,38 +1007,20 @@ document.addEventListener('DOMContentLoaded', () => {
     if (refreshOcrBtn) refreshOcrBtn.ariaLabel = "Manual Re-Capture";
     if (autoToggle?.parentElement) autoToggle.parentElement.ariaLabel = "Toggle Automation";
 
+    // History Loading
     if (historyContent) {
         const savedV2 = localStorage.getItem('vn-ocr-public-history-v2');
         if (savedV2) {
             const lines = JSON.parse(savedV2);
             lines.reverse().forEach(line => addOCRResultToUI(line));
-        } else {
-            const legacy = localStorage.getItem('vn-ocr-public-history');
-            if (legacy) {
-                // Safe migration: parse HTML, extract only text content from spans
-                try {
-                    const doc = new DOMParser().parseFromString(legacy, 'text/html');
-                    const spans = doc.querySelectorAll('span');
-                    const texts = Array.from(spans).map(s => s.textContent).filter(t => t.trim());
-                    if (texts.length > 0) {
-                        localStorage.setItem('vn-ocr-public-history-v2', JSON.stringify(texts));
-                        texts.reverse().forEach(line => addOCRResultToUI(line));
-                    }
-                } catch (e) { console.warn('Legacy history migration failed:', e); }
-                localStorage.removeItem('vn-ocr-public-history');
-            }
-        }
-
-        if (historyContent.firstChild && latestText) {
-            const entry = historyContent.firstElementChild;
-            const span = entry?.querySelector('span');
-            if (span) latestText.textContent = span.textContent;
         }
     }
-});
+}
+
+globalInitialize();
 
 /* ========================================== */
-/* PHASE 6 — HAMBURGER MENU MIRROR (APPEND)   */
+/* PHASE 6 — HAMBURGER MENU MIRROR            */
 /* ========================================== */
 
 (function () {
@@ -1022,39 +1051,46 @@ document.addEventListener('DOMContentLoaded', () => {
         if (e.key === 'Escape') closeMenu();
     });
 
-    // Mirror actions: trigger existing controls via .click()
     if (menuTheme) menuTheme.onclick = () => {
-        const tt = document.getElementById('theme-toggle');
-        if (tt) tt.click();
+        const next = document.body.classList.contains('light-theme') ? 'dark' : 'light';
+        setSetting('theme', next);
+        applySettingsToUI();
         closeMenu();
     };
+
     if (menuAuto) menuAuto.onclick = () => {
         const at = document.getElementById('auto-capture-toggle');
-        if (at) at.click();
+        if (at) at.click(); // Re-use existing toggle logic
         closeMenu();
     };
+
     if (menuCopy) {
-        const updateCopyLabel = () => { menuCopy.textContent = settings.get('auto-copy', true) ? 'Auto-Copy: ON' : 'Auto-Copy: OFF'; };
+        const updateCopyLabel = () => { menuCopy.textContent = getSetting('autoCopy') ? 'Auto-Copy: ON' : 'Auto-Copy: OFF'; };
         updateCopyLabel();
         menuCopy.onclick = () => {
-            settings.set('auto-copy', !settings.get('auto-copy', true));
+            setSetting('autoCopy', !getSetting('autoCopy'));
             updateCopyLabel();
             closeMenu();
         };
     }
+
     if (menuInstall) menuInstall.onclick = () => {
         const it = document.getElementById('install-btn');
         if (it) it.click();
         closeMenu();
     };
+
     if (menuGuide) menuGuide.onclick = () => {
         const hb = document.getElementById('help-btn');
         if (hb) hb.click();
         closeMenu();
     };
+
     if (menuHistory) menuHistory.onclick = () => {
-        const root = document.querySelector('.dashboard-root');
-        if (root) root.classList.toggle('history-hidden');
+        const next = !getSetting('historyVisible');
+        setSetting('historyVisible', next);
+        applySettingsToUI();
         closeMenu();
     };
 })();
+

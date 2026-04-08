@@ -37,6 +37,7 @@
                         <option value="default_mini" selected>Default Mini</option>
                         <option value="default_full">Default Full</option>
                         <option value="adaptive">Adaptive</option>
+                        <option value="paddle">PaddleOCR (High Precision)</option>
                         <option value="multi">Multi-Pass</option>
                         <option value="last_resort">Last Resort</option>
                         <option value="binarize">Contrast</option>
@@ -65,6 +66,21 @@
                 <button id="select-window-btn" class="btn primary">Select Window Source</button>
             </div>
         </header>
+
+        <!-- STARTUP BANNER FOR PADDLEOCR -->
+        <div id="startup-banner" class="startup-banner">
+            <div class="banner-text">
+                🚀 <strong>PaddleOCR Mode Active:</strong> This mode uses a powerful high-precision model.
+            </div>
+            <div class="banner-actions">
+                <button id="banner-switch-default" class="btn">Switch to Default</button>
+                <div class="checkbox-group">
+                    <input type="checkbox" id="banner-nocall-checkbox">
+                    <label for="banner-nocall-checkbox">Don't show again</label>
+                </div>
+                <button id="banner-close" class="modal-close" style="position:static; font-size: 20px;">&times;</button>
+            </div>
+        </div>
 
         <main class="app-main">
             <!-- MAIN CONTENT AREA (VIDEO + LATEST TEXT) -->
@@ -225,6 +241,28 @@
         </div>
     </div>
 
+    <!-- PADDLEOCR WARNING MODAL -->
+    <div id="paddle-modal" class="modal-overlay">
+        <div class="modal-content" style="max-width: 500px;">
+            <div class="modal-header">
+                <h2 style="color: var(--panic)">PaddleOCR Warning</h2>
+                <p>Heavy Model Initialization</p>
+            </div>
+            <div class="guide-card" style="margin-bottom: 20px;">
+                <p>This mode loads a large neural network (20–80 MB) and may use significant CPU/GPU resources.</p>
+                <p><strong>Note:</strong> On slower connections, the first load may take several seconds.</p>
+            </div>
+            <div class="checkbox-group" style="margin-bottom: 20px; display: flex; align-items: center; gap: 8px;">
+                <input type="checkbox" id="heavy-warning-checkbox">
+                <label for="heavy-warning-checkbox" style="font-size: 13px; color: var(--text-dim);">Do not show this warning again</label>
+            </div>
+            <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 12px;">
+                <button id="paddle-cancel" class="btn" style="background: var(--border); color: var(--text);">Cancel</button>
+                <button id="paddle-continue" class="btn primary">Continue</button>
+            </div>
+        </div>
+    </div>
+
     <div id="side-menu" class="side-menu">
         <div class="menu-header">
             <h3>Site Menu</h3>
@@ -242,7 +280,7 @@
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"
         integrity="sha384-GJqSu7vueQ9qN0E9yLPb3Wtpd7OrgK8KmYzC8T1IysG1bcvxvIO4qtYR/D3A991F"
         crossorigin="anonymous"></script>
-    <script src="app.js"></script>
+    <script type="module" src="app.js"></script>
 </body>
 
 </html>
