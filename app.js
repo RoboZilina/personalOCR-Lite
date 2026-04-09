@@ -404,6 +404,67 @@ function scaleCanvasToThumb(c, maxW, maxH) {
     return r;
 }
 
+// === UNIVERSAL MICRO-FILTER HELPERS ===
+
+function trimEmptyVertical(canvas) {
+    const ctx = canvas.getContext("2d");
+    const { width, height } = canvas;
+    const img = ctx.getImageData(0, 0, width, height);
+    const data = img.data;
+
+    let top = 0;
+    let bottom = height - 1;
+
+    for (; top < height; top++) {
+        let empty = true;
+        for (let x = 0; x < width; x++) {
+            if (data[(top * width + x) * 4 + 3] !== 0) { empty = false; break; }
+        }
+        if (!empty) break;
+    }
+
+    for (; bottom > top; bottom--) {
+        let empty = true;
+        for (let x = 0; x < width; x++) {
+            if (data[(bottom * width + x) * 4 + 3] !== 0) { empty = false; break; }
+        }
+        if (!empty) break;
+    }
+
+    const newH = bottom - top + 1;
+    if (newH <= 0) return canvas;
+
+    const out = document.createElement("canvas");
+    out.width = width;
+    out.height = newH;
+    out.getContext("2d").drawImage(canvas, 0, top, width, newH, 0, 0, width, newH);
+    return out;
+}
+
+function padLeft(canvas, px = 4) {
+    const out = document.createElement("canvas");
+    out.width = canvas.width + px;
+    out.height = canvas.height;
+    const ctx = out.getContext("2d");
+    ctx.drawImage(canvas, px, 0);
+    return out;
+}
+
+function boostContrast(canvas, factor = 1.08) {
+    const ctx = canvas.getContext("2d");
+    const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const d = img.data;
+
+    for (let i = 0; i < d.length; i += 4) {
+        d[i]   = Math.min(255, d[i]   * factor);
+        d[i+1] = Math.min(255, d[i+1] * factor);
+        d[i+2] = Math.min(255, d[i+2] * factor);
+    }
+
+    ctx.putImageData(img, 0, 0);
+    return canvas;
+}
+
 async function captureFrame(rect) {
     if (!vnVideo || !vnVideo.videoWidth || !rect || isProcessing) return;
     isProcessing = true;
@@ -432,12 +493,13 @@ async function captureFrame(rect) {
                 return;
             }
             // === FIXED TEXTBOX CROP (DETECTORLESS PIPELINE) ===
-            updateDebugThumb(rawCropCanvas);
-            setOCRStatus('processing', '🟡 Reading (PaddleOCR Recognizer)...');
+            let clean = trimEmptyVertical(rawCropCanvas);
+            clean = padLeft(clean, 4);
+            clean = boostContrast(clean, 1.08);
 
-            // Send the raw crop directly to the PaddleOCR recognizer.
-            // Internal resizing/normalization is handled by the core engine.
-            const text = await window.paddleProvider.recognize(rawCropCanvas);
+            updateDebugThumb(clean);
+
+            const text = await window.paddleProvider.recognize(clean);
             if (captureGeneration !== myGen) return;
 
             // Update UI with the result
