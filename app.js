@@ -462,11 +462,11 @@ async function captureFrame(rect) {
                 updateDebugThumb(result.canvas);
                 addOCRResultToUI(result.text);
             } else {
-                // For standard modes, we now pass the rawCropCanvas directly
-                // to ensure parity between engines as requested.
-                updateDebugThumb(rawCropCanvas);
+                const processed = applyPreprocessing(rawCropCanvas, mode);
+                if (captureGeneration !== myGen) return;
+                updateDebugThumb(processed);
                 setOCRStatus('processing', '🟡 Reading...');
-                const result = await runTesseract(rawCropCanvas);
+                const result = await runTesseract(processed);
                 if (captureGeneration !== myGen) return;
                 addOCRResultToUI(result.text);
             }
