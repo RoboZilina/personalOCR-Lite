@@ -69,7 +69,7 @@ export class PaddleOCR {
         if (!this.detSession) return { boxes: [] };
 
         try {
-            console.log("PaddleOCR: running detection");
+
             const inputSize = this.manifest.det.input_size || [960, 960];
             const [h, w] = inputSize;
 
@@ -90,7 +90,7 @@ export class PaddleOCR {
             const mapW = dims[3];
 
             const boxes = this._extractBoxesFromMap(map, mapH, mapW, canvas.width, canvas.height);
-            console.log("PaddleOCR: boxes =", boxes);
+
             
             // Memory Cleanup
             feeds[this.detSession.inputNames[0]] = null;
@@ -184,7 +184,7 @@ export class PaddleOCR {
         if (!this.recSession) return '';
 
         try {
-            console.log("PaddleOCR: recognizing crop");
+
             const inputSize = this.manifest.rec.input_size || [32, 320];
             const [h, w] = inputSize;
 
@@ -210,7 +210,7 @@ export class PaddleOCR {
             }
 
             const text = this._ctcGreedyDecode(logits, dims);
-            console.log("PaddleOCR: text =", text);
+
             
             // Memory Cleanup
             feeds[this.recSession.inputNames[0]] = null;

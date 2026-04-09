@@ -148,7 +148,7 @@ async function initOCR() {
     // Since #model-selector now handles engines, we default Tesseract to 'jpn_best'
     await ensureModelLoaded('jpn_best');
 }
-// initOCR(); // (REMOVED) - Logic now handled by globalInitialize to prevent double-load.
+
 
 if (modeSelector) {
     modeSelector.addEventListener('change', () => {
@@ -486,7 +486,7 @@ function boostContrast(canvas, factor = 1.08) {
 async function captureFrame(rect) {
     if (!vnVideo || !vnVideo.videoWidth || !rect || isProcessing) return;
     isProcessing = true;
-    console.log("Capture triggered");
+    if (getSetting('debug')) console.log("Capture triggered");
     const myGen = ++captureGeneration;
 
     const vWidth = vnVideo.videoWidth, vHeight = vnVideo.videoHeight;
@@ -499,7 +499,7 @@ async function captureFrame(rect) {
     rawCropCanvas.getContext('2d').drawImage(vnVideo, cx_, cy_, cw_, ch_, 0, 0, cw_, ch_);
 
     // 6. Logging for verification
-    console.log(`[VN-OCR] Crop Source: sx=${cx_}, sy=${cy_}, sw=${cw_}, sh=${ch_}`);
+    if (getSetting('debug')) console.log(`[VN-OCR] Crop Source: sx=${cx_}, sy=${cy_}, sw=${cw_}, sh=${ch_}`);
 
     const engine = engineSelector.value;
     const mode = modeSelector.value;
@@ -1269,9 +1269,7 @@ function globalInitialize() {
         }
     }
 
-    if (engineSelector?.value === 'paddle') {
-        if (modeSelector) modeSelector.disabled = true;
-    }
+
 }
 
 globalInitialize();
