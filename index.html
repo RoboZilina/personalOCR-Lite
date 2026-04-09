@@ -37,7 +37,6 @@
                         <option value="default_mini" selected>Default Mini</option>
                         <option value="default_full">Default Full</option>
                         <option value="adaptive">Adaptive</option>
-                        <option value="paddle">PaddleOCR (High Precision)</option>
                         <option value="multi">Multi-Pass</option>
                         <option value="last_resort">Last Resort</option>
                         <option value="binarize">Contrast</option>
@@ -46,10 +45,8 @@
                     </select>
                     <button id="panic-btn" class="panic-btn" title="Panic Mode: Max Enhance!">🚨</button>
                     <select id="model-selector" class="ui-select">
-                        <option value="jpn">日本語 (jpn)</option>
-                        <option value="jpn_best" selected>日本語 (jpn_best)</option>
-                        <option value="jpn_fast">日本語 (jpn_fast)</option>
-                        <option value="jpn_vert">縦書き (jpn_vert)</option>
+                        <option value="tesseract">Tesseract</option>
+                        <option value="paddle">PaddleOCR</option>
                     </select>
                     <select id="tts-voice-select" class="ui-select" title="TTS Voice" style="max-width: 150px;">
                         <option value="">🔇 TTS Off</option>
@@ -277,8 +274,7 @@
     <div id="menu-backdrop" class="menu-backdrop"></div>
 
     <!-- Scripts at the end of body -->
-    <!-- Phase 2: uncomment when ort.min.js is downloaded -->
-    <!-- <script src="./js/ort.min.js"></script> -->
+    <script src="./js/onnx/ort.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"
         integrity="sha384-GJqSu7vueQ9qN0E9yLPb3Wtpd7OrgK8KmYzC8T1IysG1bcvxvIO4qtYR/D3A991F"
         crossorigin="anonymous"></script>

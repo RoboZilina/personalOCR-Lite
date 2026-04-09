@@ -10,7 +10,7 @@ const ASSETS = [
     './settings.js',
     './manifest.json',
     './js/paddle/paddle_core.js',
-    './js/paddle/paddle_v3.js'
+    './js/paddle/paddle_engine.js'
 ];
 const MODEL_CACHE_NAME = 'vn-ocr-models-v1';
 
@@ -47,8 +47,8 @@ self.addEventListener('fetch', (event) => {
         return;
     }
 
-    // Model files and ONNX runtime: cache-first with dedicated long-lived cache
-    if (url.pathname.includes('/models/paddle/') || url.pathname.includes('/js/ort')) {
+    // ONNX runtime files (NOT large models) - cache-first
+    if (url.pathname.includes('/js/onnx/')) {
         event.respondWith(
             caches.open(MODEL_CACHE_NAME).then(cache =>
                 cache.match(event.request).then(cached => {

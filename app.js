@@ -7,14 +7,10 @@ import {
 } from './settings.js';
 
 import { 
-    setPaddleProvider, 
-    loadPaddleModels, 
-    runPaddleOCR, 
-    disposePaddle, 
-    getPaddleStatus 
+    runPaddleOCR
 } from './js/paddle/paddle_core.js';
 
-import { PaddleProviderV3 } from './js/paddle/paddle_v3.js';
+import { PaddleOCR } from './js/paddle/paddle_engine.js';
 
 // DOM Elements
 const selectWindowBtn = document.getElementById('select-window-btn');
@@ -27,12 +23,15 @@ const latestText = document.getElementById('latest-text');
 const ocrStatus = document.getElementById('ocr-status');
 const refreshOcrBtn = document.getElementById('refresh-ocr-btn');
 const clearHistoryBtn = document.getElementById('clear-history-btn');
-const engineSelector = document.getElementById('mode-selector');
+const engineSelector = document.getElementById('model-selector');
 const panicBtn = document.getElementById('panic-btn');
-const langSelector = document.getElementById('model-selector');
+const modeSelector = document.getElementById('mode-selector');
 const autoToggle = document.getElementById('auto-capture-toggle');
 const upscaleSlider = document.getElementById('upscale-slider');
 const upscaleVal = document.getElementById('upscale-val');
+
+// Phase 2: Lazy-load state initialization
+modeSelector.disabled = (engineSelector.value !== 'tesseract');
 
 // Phase 5: PWA Install Management (Fixed duplication)
 let deferredPrompt = null;
@@ -65,7 +64,7 @@ let currentModelAlias = null;
 // Smart Scout: 32x32 Comparison Logic
 const scoutCanvas = document.createElement('canvas');
 scoutCanvas.width = 32; scoutCanvas.height = 32;
-const scoutCtx = scoutCanvas.getContext('2d');
+const scoutCtx = scoutCanvas.getContext('2d', { willReadFrequently: true });
 let lastScoutData = null;
 let autoCaptureTimer = null;
 let stabilityTimer = null;
@@ -144,22 +143,23 @@ async function ensureModelLoaded(requestedAlias) {
 }
 
 async function initOCR() {
-    const model = langSelector ? langSelector.value : 'jpn_best';
-    await ensureModelLoaded(model);
+    // Since #model-selector now handles engines, we default Tesseract to 'jpn_best'
+    await ensureModelLoaded('jpn_best');
 }
 initOCR();
 
-if (langSelector) {
-    langSelector.addEventListener('change', () => {
+if (modeSelector) {
+    modeSelector.addEventListener('change', () => {
         applyUIToSettings();
-        ensureModelLoaded(langSelector.value);
     });
 }
 
 
 if (panicBtn) {
     panicBtn.onclick = () => {
-        engineSelector.value = 'last_resort';
+        engineSelector.value = 'tesseract';
+        modeSelector.value = 'multi';
+        modeSelector.disabled = false;
         panicBtn.classList.add('active');
         setTimeout(() => panicBtn.classList.remove('active'), 1000);
         if (selectionRect) captureFrame(selectionRect);
@@ -407,6 +407,7 @@ function scaleCanvasToThumb(c, maxW, maxH) {
 async function captureFrame(rect) {
     if (!vnVideo || !vnVideo.videoWidth || !rect || isProcessing) return;
     isProcessing = true;
+    console.log("Capture triggered");
     const myGen = ++captureGeneration;
 
     const vWidth = vnVideo.videoWidth, vHeight = vnVideo.videoHeight;
@@ -414,46 +415,73 @@ async function captureFrame(rect) {
     const cx_ = Math.max(0, Math.floor(sel.x)), cy_ = Math.max(0, Math.floor(sel.y));
     const cw_ = Math.max(1, Math.min(vWidth - cx_, Math.floor(sel.w))), ch_ = Math.max(1, Math.min(vHeight - cy_, Math.floor(sel.h)));
 
-    const crop = document.createElement('canvas');
-    crop.width = cw_; crop.height = ch_;
-    crop.getContext('2d').drawImage(vnVideo, cx_, cy_, cw_, ch_, 0, 0, cw_, ch_);
+    const rawCropCanvas = document.createElement('canvas');
+    rawCropCanvas.width = cw_; rawCropCanvas.height = ch_;
+    rawCropCanvas.getContext('2d', { willReadFrequently: true }).drawImage(vnVideo, cx_, cy_, cw_, ch_, 0, 0, cw_, ch_);
 
-    const mode = engineSelector.value;
-    const model = langSelector.value;
+    // 6. Logging for verification
+    console.log(`[VN-OCR] Crop Source: sx=${cx_}, sy=${cy_}, sw=${cw_}, sh=${ch_}`);
+
+    const engine = engineSelector.value;
+    const mode = modeSelector.value;
 
     try {
-        if (mode === 'paddle') {
-            const upscaled = lr_upscale(crop, parseFloat(upscaleSlider.value));
-            const padded = lr_addPadding(upscaled, 10);
-            updateDebugThumb(padded);
-            setOCRStatus('processing', '🟡 Reading (PaddleOCR)...');
-            const result = await runPaddleOCR(padded);
+        if (engine === 'paddle') {
+            if (!window.paddleProvider) {
+                setOCRStatus('error', 'PaddleOCR not ready');
+                return;
+            }
+            // === FIXED TEXTBOX CROP (DETECTORLESS PIPELINE) ===
+            updateDebugThumb(rawCropCanvas);
+            setOCRStatus('processing', '🟡 Reading (PaddleOCR Recognizer)...');
+
+            // Send the raw crop directly to the PaddleOCR recognizer.
+            // Internal resizing/normalization is handled by the core engine.
+            const text = await window.paddleProvider.recognize(rawCropCanvas);
             if (captureGeneration !== myGen) return;
-            if (result && result.text) addOCRResultToUI(result.text);
+
+            // Update UI with the result
+            if (text && text.trim()) {
+                addOCRResultToUI(text);
+                setOCRStatus('ready', '🟢 OCR Complete');
+            } else {
+                setOCRStatus('ready', '⚪ No text detected');
+            }
         } else {
-            await ensureModelLoaded(model);
+            // Tesseract always uses jpn_best now per Section 1 Cleanup
+            await ensureModelLoaded('jpn_best');
+
             if (mode === 'last_resort') {
-                const result = await runLastResortOCR(crop, myGen);
+                const result = await runLastResortOCR(rawCropCanvas, myGen);
                 if (captureGeneration !== myGen) return;
                 updateDebugThumb(result.canvas);
                 addOCRResultToUI(result.text);
             } else if (mode === 'multi') {
-                const result = await runMultiPassOCR(crop, myGen);
+                const result = await runMultiPassOCR(rawCropCanvas, myGen);
                 if (captureGeneration !== myGen) return;
                 updateDebugThumb(result.canvas);
                 addOCRResultToUI(result.text);
             } else {
-                const processed = applyPreprocessing(crop, mode);
-                if (captureGeneration !== myGen) return;
-                updateDebugThumb(processed);
+                // For standard modes, we now pass the rawCropCanvas directly
+                // to ensure parity between engines as requested.
+                updateDebugThumb(rawCropCanvas);
                 setOCRStatus('processing', '🟡 Reading...');
-                const result = await runTesseract(processed);
+                const result = await runTesseract(rawCropCanvas);
                 if (captureGeneration !== myGen) return;
                 addOCRResultToUI(result.text);
             }
         }
-    } catch (err) { setOCRStatus('error', '🔴 OCR Error'); }
-    finally { isProcessing = false; if (isOcrReady) setOCRStatus('ready', '🟢 OCR Ready'); }
+    } catch (err) { 
+        console.error("OCR Error:", err);
+        setOCRStatus('error', '🔴 OCR Error'); 
+    }
+    finally { 
+        // Small cooldown to prevent rapid-fire re-triggering
+        setTimeout(() => {
+            isProcessing = false; 
+            if (isOcrReady) setOCRStatus('ready', '🟢 OCR Ready'); 
+        }, 100);
+    }
 }
 
 /** Integral-image local mean adaptive threshold. Returns thresholded ImageData. */
@@ -462,8 +490,9 @@ function adaptiveThreshold(canvas, ctx, res, { windowDivisor, thresholdFactor, p
     canvas = sharpenCanvas(canvas);
     if (preDenoise) canvas = medianFilter(canvas);
 
-    ctx.drawImage(canvas, 0, 0);
-    const id2 = ctx.getImageData(0, 0, res.width, res.height);
+    const octx = res.getContext('2d', { willReadFrequently: true });
+    octx.drawImage(canvas, 0, 0);
+    const id2 = octx.getImageData(0, 0, res.width, res.height);
     const d2 = id2.data;
     const w = res.width, h = res.height;
     const integral = new Float64Array(w * h);
@@ -513,7 +542,9 @@ function applyPreprocessing(canvas, mode) {
     const ctx = res.getContext('2d'); ctx.drawImage(canvas, 0, 0);
     const id = ctx.getImageData(0, 0, res.width, res.height); const d = id.data;
     let workingId = null;
-    if (mode === 'binarize') {
+    if (mode === 'raw') {
+        return lr_addPadding(canvas, 10);
+    } else if (mode === 'binarize') {
         canvas = invertCanvas(canvas);
         canvas = sharpenCanvas(canvas);
 
@@ -962,25 +993,57 @@ function initSettings() {
 }
 
 // 6.2 PaddleOCR Toggle and Warning Logic
-let previousMode = engineSelector?.value || "default_mini";
+let previousMode = engineSelector?.value || "tesseract";
 
-engineSelector?.addEventListener('change', () => {
-    const newMode = engineSelector.value;
-    if (newMode === 'paddle') {
-        if (ocrWorker) { ocrWorker.terminate(); ocrWorker = null; }
-        if (getSetting('showHeavyWarning')) {
-            document.getElementById('paddle-modal').classList.add('active');
-            return;
-        } else {
-            setSetting('ocrMode', 'paddle');
-            loadPaddleOCR();
+engineSelector.addEventListener('change', async () => {
+    const engine = engineSelector.value;
+
+    // Enable preprocessing only for Tesseract
+    modeSelector.disabled = (engine !== 'tesseract');
+
+    if (engine === 'tesseract') {
+        // Dispose Paddle
+        if (window.paddleProvider) {
+            console.log("Disposing PaddleOCR sessions...");
+            window.paddleProvider.dispose();
+            window.paddleProvider = null;
         }
-    } else {
-        disposePaddle();
-        setSetting('ocrMode', newMode);
-        applyUIToSettings();
+        // Restart Tesseract worker
+        initOCR();
+    } else if (engine === 'paddle') {
+        console.log("Engine switched to PaddleOCR");
+        // Terminate Tesseract worker to save memory
+        if (ocrWorker) {
+            console.log("Terminating Tesseract worker...");
+            ocrWorker.terminate();
+            ocrWorker = null;
+        }
+
+        // Lazy-load PaddleOCR on selection
+        if (!window.paddleProvider && !isProcessing) {
+            isProcessing = true; // Global lock
+            window.paddleProvider = new PaddleOCR(
+                './models/paddle/manifest.json',
+                './js/onnx/',
+                (msg) => {
+                    const statusPill = document.getElementById('paddle-status-pill');
+                    if (statusPill) statusPill.textContent = msg;
+                }
+            );
+            try {
+                await window.paddleProvider.loadModels();
+            } catch (e) {
+                console.error('Failed to load PaddleOCR', e);
+                setOCRStatus('error', 'PaddleOCR failed to load');
+                window.paddleProvider = null;
+            } finally {
+                isProcessing = false;
+                if (window.paddleProvider && window.paddleProvider.isLoaded) {
+                    setOCRStatus('ready', '🟢 PaddleOCR Ready');
+                }
+            }
+        }
     }
-    previousMode = newMode;
 });
 
 
@@ -1017,6 +1080,7 @@ document.getElementById('banner-close')?.addEventListener('click', () => {
 function globalInitialize() {
     initHelpModal();
     initSettings();
+    modeSelector.disabled = (engineSelector.value !== 'tesseract');
 
     // Service Worker
     if ('serviceWorker' in navigator) {
@@ -1044,6 +1108,10 @@ function globalInitialize() {
             const lines = JSON.parse(savedV2);
             lines.reverse().forEach(line => addOCRResultToUI(line));
         }
+    }
+
+    if (engineSelector?.value === 'paddle') {
+        if (modeSelector) modeSelector.disabled = true;
     }
 }
 

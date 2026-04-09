@@ -1,12 +1,13 @@
 {
-  "v3": {
-    "det": "japan_PP-OCRv3_det.onnx",
-    "rec": "japanese_mobile_v2.0_rec.onnx",
-    "dict": "japan_dict.txt",
-    "backend": "wasm",
-    "detInput": { "name": "x", "shape": [1, 3, -1, -1] },
-    "detOutput": { "name": "sigmoid_0.tmp_0" },
-    "recInput": { "name": "x", "shape": [1, 3, 48, -1] },
-    "recOutput": { "name": "softmax_0.tmp_0" }
+  "det": {
+    "path": "det.onnx",
+    "input_size": [960, 960]
+  },
+  "rec": {
+    "path": "rec.onnx",
+    "input_size": [48, 320]
+  },
+  "dict": {
+    "path": "japan_dict.txt"
   }
 }
