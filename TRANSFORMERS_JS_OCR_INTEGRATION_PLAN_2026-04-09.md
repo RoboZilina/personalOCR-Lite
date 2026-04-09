@@ -1,122 +1,94 @@
-# Transformers.js OCR Integration — Planning Document
+# Transformers.js OCR Integration — Enhanced Planning Document
+
+This document outlines the deterministic, safe, and mutually exclusive integration of Transformers.js-based AI models into the VN-OCR pipeline.
 
 ---
 
-## 1. Architecture Overview
-- **Engine System Integration:**
-  - `transformers.js` will be introduced as a third, fully isolated OCR engine alongside Tesseract and PaddleOCR.
-  - The engine selector UI will add a new option (e.g., “Transformers.js OCR”) and update all engine-switching logic to support this new mode.
-  - All transformers.js logic, state, and model management will be encapsulated in a dedicated module (e.g., `/js/transformers/transformers_ocr.js`), ensuring no cross-contamination with Tesseract or PaddleOCR.
-  - The pipeline will accept `rawCropCanvas` (or a micro-filtered variant) as input, maintaining the unified canvas source of truth.
-  - The transformers.js engine will expose a single async `recognize(canvas)` interface, matching the pattern of the other engines.
-  - Debug thumbnail and UI update hooks will be integrated identically to existing engines.
+## 1. Engine Architecture (The 4-Engine Model)
 
-## 2. Model Selection Strategy
-- **Recommended Models for Japanese OCR:**
-  - **Local:**  
-    - TrOCR (Transformer-based OCR, with Japanese fine-tuning if available).
-    - Donut (Document Understanding Transformer) with Japanese support.
-    - Any ONNX-exported or WebGPU-compatible Japanese OCR model.
-  - **Remote:**  
-    - HuggingFace Inference API endpoints for TrOCR, Donut, or similar models with Japanese support.
-- **Trade-offs:**
-  - **ONNX/WebGPU (Local):**
-    - Pros: Fully offline, no network dependency, lower latency after warm-up, privacy-preserving.
-    - Cons: Large model sizes (tens to hundreds of MB), browser compatibility (WebGPU not universally available), higher memory usage, longer initial load.
-  - **Remote Inference:**
-    - Pros: Minimal client resource usage, always up-to-date models, no local storage constraints.
-    - Cons: Requires network, subject to rate limits/latency, not available offline, potential privacy concerns.
-- **Performance:**
-  - Local ONNX/WebGPU: Fast inference after warm-up (sub-second to a few seconds per region, depending on model and hardware).
-  - Remote: Latency depends on network and endpoint load (hundreds of ms to several seconds).
+The application will transition to a single-source-of-truth dropdown containing 4 mutually exclusive engines:
+1.  **Tesseract**: The classic, preprocessing-enabled engine.
+2.  **PaddleOCR**: The high-precision neural recognizer.
+3.  **MangaOCR (Transformers.js)**: Optimized for manga/visual novel text, supports vertical layout.
+4.  **TrOCR-Small (Transformers.js)**: Fast, transformer-based "Printed" model.
 
-## 3. Pipeline Integration
-- **Canvas Preparation:**
-  - Input will be `rawCropCanvas` or a micro-filtered variant (e.g., after `trimEmptyVertical`, `padLeft`, `boostContrast`), depending on model requirements.
-  - Preprocessing steps should be configurable per model; some models may require grayscale, resizing, or normalization.
-- **Micro-filters:**
-  - Reuse existing micro-filters if compatible with model input expectations.
-  - Adapt or bypass filters if the model expects raw or differently preprocessed input.
-- **Multi-line Text Handling:**
-  - Ensure the pipeline can pass full text regions (not just single lines) to the model.
-  - Post-processing may be required to reconstruct multi-line output, depending on model output format.
-- **Vertical Japanese Text:**
-  - Confirm model support for vertical text.
-  - If not natively supported, consider pre-rotating canvas input or using a dedicated vertical-text model.
-
-## 4. Async Flow & UI Integration
-- **captureGeneration Integration:**
-  - All transformers.js inference must be async and check `captureGeneration` before updating UI, mirroring Tesseract/PaddleOCR.
-  - Results must be discarded if a newer capture is triggered before completion.
-- **Debug Thumbnail:**
-  - Update debug thumbnail with the exact canvas sent to the model, as with other engines.
-- **Race Condition Avoidance:**
-  - Use the same locking and generation counter mechanisms as existing engines.
-  - Ensure all async operations are properly awaited and canceled if superseded.
-
-## 5. Performance Considerations
-- **WebGPU vs WASM vs ONNX:**
-  - WebGPU offers the best performance but is not universally supported.
-  - WASM/ONNX is more broadly compatible but may be slower.
-  - Fallback logic may be needed to select the best available backend.
-- **Model Size Constraints:**
-  - Large models may impact initial load time and memory usage.
-  - Consider quantized or distilled models for faster load and lower RAM footprint.
-- **Memory Usage:**
-  - Monitor and manage model and tensor memory to avoid browser crashes.
-  - Dispose of models and tensors when switching engines or on low-memory signals.
-- **Warm-up Strategies:**
-  - Preload and warm up models on engine selection to reduce first-inference latency.
-  - Optionally allow background warm-up after page load if resources permit.
-
-## 6. Error Handling & Fallbacks
-- **Offline Mode:**
-  - Local models: Always available if loaded.
-  - Remote models: Detect offline state and gracefully disable transformers.js engine, falling back to Tesseract/PaddleOCR.
-- **Remote Inference Fallback:**
-  - If remote inference fails (network, rate limit, server error), display a clear error and suggest switching engines.
-- **Engine Switching Safety:**
-  - Ensure all transformers.js state is disposed on engine switch.
-  - Prevent UI or pipeline drift if a model fails to load or inference fails.
-
-## 7. Deployment Considerations
-- **CDN vs Local Model Hosting:**
-  - Local: Store models in `/assets/models`, ensure they are included in deployment and service worker cache for offline use.
-  - CDN: Use only if CORS is properly configured and models are cacheable.
-- **CORS Issues:**
-  - All remote model or inference endpoints must support CORS for browser access.
-  - Local models avoid CORS entirely.
-- **Browser Compatibility:**
-  - WebGPU: Only available in recent Chrome/Edge/Firefox; fallback to WASM/ONNX if unavailable.
-  - WASM: Broadly supported.
-  - Test on all target browsers and devices.
-
-## 8. Security Considerations
-- **No Leaking of VN Content:**
-  - For local models, all processing is client-side; no content leaves the browser.
-  - For remote inference, ensure only the minimal required image data is sent, and inform users of network transmission.
-- **No Remote Logging:**
-  - Do not transmit logs, debug data, or user content to third-party endpoints.
-- **No Unintended Data Transmission:**
-  - Audit all network requests made by transformers.js and related code.
-  - Disable or remove any telemetry or analytics in third-party code.
-
-## 9. Final Recommendation
-- **Best Option:**  
-  - **Option A (Local Transformers.js Models)** is recommended for this project.
-- **Rationale:**
-  - Fully client-side operation aligns with privacy, offline support, and performance goals.
-  - No dependency on external endpoints, no risk of rate limits or downtime.
-  - User content (VN screenshots) never leaves the device, ensuring privacy.
-  - Consistent with the current architecture (Tesseract and PaddleOCR are also local).
-- **Trade-offs:**
-  - Larger initial download and memory usage.
-  - Requires careful model selection and possible quantization to fit browser constraints.
-  - WebGPU support is not universal; fallback to WASM/ONNX is necessary.
-- **Option B (Remote Inference):**
-  - Only consider as a fallback for unsupported devices or as an advanced/optional feature.
-  - Not suitable as the primary engine due to privacy, offline, and reliability concerns.
+**No Stacking:** Only one engine is active at a time. Switching to any AI engine (Paddle/Manga/TrOCR) automatically unloads the previous engine from memory.
 
 ---
 
-**End of planning document.**
+## 2. Implementation: MangaOCR & TrOCR-Small
+
+These two specific models will be implemented using the `transformers.js` library:
+
+### **MangaOCR**
+- **Model**: `Xenova/manga-ocr-base`
+- **Use Case**: Best for vertical Japanese text and stylized fonts found in VNs.
+- **Footprint**: ~30 MB ONNX.
+
+### **TrOCR-Small**
+- **Model**: `Xenova/trocr-small-printed`
+- **Use Case**: Fast execution for clean, horizontal printed text.
+- **Footprint**: ~20 MB ONNX.
+
+---
+
+## 3. Storage & Caching Strategy (IndexedDB)
+
+Contrary to earlier plans, **Service Worker caching is NOT used** for model binaries.
+- **Internal Caching**: Transformers.js uses its own internal logic to store models in the browser's **IndexedDB**.
+- **Impact**: This avoids bloating the Service Worker's cache quota and prevents network timeouts during PWA installation.
+- **Version Control**: Service Worker version will be bumped to `v1.3.2` to reflect the library integration, but it will not intercept model fetches.
+
+---
+
+## 4. UI & Preprocessing Behavior
+
+### **Enforced Raw Input**
+- When **MangaOCR** or **TrOCR-Small** is selected:
+    - The `modeSelector` (Preprocessing Mode) is **disabled**.
+    - The UI displays: *"Preprocessing disabled for AI OCR engines."*
+- **Rationale**: Transformer-based models are trained on raw imagery. Forcing them through thresholding filters like "Default Full" or "Adaptive" can induce high error rates.
+
+---
+
+## 5. Lazy Loading & Resource Management
+
+### **Zero-Impact Startup**
+- AI models are **never** loaded on startup.
+- Loading is triggered **only** when the user selects the engine in the dropdown.
+- **Pattern**:
+  ```javascript
+  let mangaModel = null;
+  async function ensureMangaLoaded() {
+      if (!mangaModel) mangaModel = await pipeline("image-to-text", "Xenova/manga-ocr-base");
+      return mangaModel;
+  }
+  ```
+
+### **Memory Safety**
+- Call `dispose()` or clear references when switching engines to prevent RAM bloat in long-running PWA sessions.
+
+---
+
+## 6. Pipeline Synchronization (Determinism)
+
+- **Generation Guards**: Both engines must integrate with `captureGeneration`. If an inference pass for MangaOCR takes 2 seconds, but the user clicks "RE-CAPTURE" after 1 second, the old result **must** be discarded.
+- **UI Locking**: `isProcessing` must be maintained correctly to prevent Auto-Capture "Double Fires."
+
+---
+
+## 7. Security & Privacy
+
+- **100% Client-Side**: All inference is performed on the user's CPU/GPU via WASM/WebGPU. No VN imagery is ever transmitted to a server.
+- **No Telemetry**: No third-party analytics or logging will be enabled in the Transformers.js configuration.
+
+---
+
+## 8. Summary of Changes
+
+1.  **Update `index.html`**: Add MangaOCR and TrOCR-Small to `#model-selector`.
+2.  **Modify `app.js`**: Update `switchEngine` to handle the two new cases.
+3.  **Create `/js/transformers/`**: Encapsulate all pipeline logic here.
+4.  **Bump SW to `v1.3.2`**.
+
+**Status: READY FOR IMPLEMENTATION.**
