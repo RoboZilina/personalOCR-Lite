@@ -10,7 +10,7 @@
     <link rel="stylesheet" href="styles.css">
     <link rel="manifest" href="manifest.json">
     <meta http-equiv="Content-Security-Policy"
-        content="script-src 'self' https://cdn.jsdelivr.net 'wasm-unsafe-eval' 'unsafe-inline'; connect-src 'self' https://cdn.jsdelivr.net https://fastly.jsdelivr.net https://tessdata.projectnaptha.com data:; worker-src 'self' blob:;">
+        content="script-src 'self' https://cdn.jsdelivr.net 'wasm-unsafe-eval' 'unsafe-inline'; connect-src 'self' blob: https://cdn.jsdelivr.net https://fastly.jsdelivr.net https://tessdata.projectnaptha.com data:; worker-src 'self' blob:;">
     <link rel="icon"
         href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAoAAAAKCAQAAACENnwnAAAAD0lEQVR42mNkYGBg+A8AAQUBAUtW7xkAAAAASUVORK5CYII=">
 </head>
@@ -186,14 +186,14 @@
                         <li><strong>1x – 2x:</strong> Good for standard 1080p games with clear, large fonts.</li>
                         <li><strong>3x – 4x:</strong> Use for 720p games or tiny packed dialogue boxes.</li>
                     </ul>
-                    <p style="margin-top:10px;">Choose your <strong>OCR Engine (Language Model)</strong> for accuracy
-                        vs. speed:</p>
+                    <p style="margin-top:10px;">Choose your <strong>OCR Engine</strong> from the dropdown:</p>
                     <ul>
-                        <li><strong>jpn_best:</strong> Highest accuracy. Larger download, slower first load.</li>
-                        <li><strong>jpn:</strong> Balanced. Good default if jpn_best feels slow.</li>
-                        <li><strong>jpn_fast:</strong> Fastest load. Slightly lower accuracy.</li>
-                        <li><strong>jpn_vert 縦書き:</strong> For traditional top-to-bottom vertical text layouts.</li>
+                        <li><strong>Tesseract:</strong> Classic OCR engine. Pairs with all Image Processing Modes (Default Mini, Adaptive, Multi-Pass, etc.). The <strong>jpn_best</strong> language model is loaded automatically for highest accuracy.</li>
+                        <li><strong>PaddleOCR:</strong> Neural-network recognizer. Runs a detectorless pipeline on your selection — no preprocessing modes needed. Best for clean, high-contrast text. Loads ~20–80 MB of ONNX models on first use.</li>
                     </ul>
+                    <p style="font-size: 12px; opacity: 0.8; border-top: 1px solid var(--border); padding-top: 8px; margin-top: 10px;">
+                        <em>When <strong>PaddleOCR</strong> is selected, the Image Processing Mode dropdown is disabled — PaddleOCR uses its own micro-filter pipeline. Switch back to <strong>Tesseract</strong> to use preprocessing modes again.</em>
+                    </p>
                 </div>
                 <div class="guide-card">
                     <h3>👁️ Autonomous Eye (Auto-Capture)</h3>
@@ -224,7 +224,7 @@
                 <div class="guide-card">
                     <h3>💡 Pro Tips</h3>
                     <ul>
-                        <li><strong>🚨 Panic Button:</strong> One click instantly switches to Last Resort mode and
+                        <li><strong>🚨 Panic Button:</strong> One click instantly switches to Tesseract Multi-Pass mode and
                             re-fires OCR — no menu diving needed.</li>
                         <li><strong>Clipboard:</strong> Select text in the output or history to auto-copy it. Toggle via <strong>Auto-Copy</strong> in the menu. Use 📋 to copy a full entry.
                         </li>

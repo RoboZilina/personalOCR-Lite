@@ -122,7 +122,7 @@ export function applyUIToSettings() {
     if (autoToggle) currentSettings.autoCapture = autoToggle.checked;
 
     const warningCheckbox = document.querySelector("#heavy-warning-checkbox");
-    if (warningCheckbox) currentSettings.showHeavyWarning = warningCheckbox.checked;
+    if (warningCheckbox) currentSettings.showHeavyWarning = !warningCheckbox.checked;
 
     // Theme and history visibility are usually toggled via buttons, 
     // so they are handled directly via setSetting in their click handlers,

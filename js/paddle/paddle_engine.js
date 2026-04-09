@@ -35,7 +35,7 @@ export class PaddleOCR {
             this.updateStatus('PaddleOCR: loading detection model…');
             const detBuffer = await fetchWithProgress(
                 modelBase + this.manifest.det.path,
-                (p) => this.updateStatus(`PaddleOCR: det ${(p * 100).toFixed(0)}%`)
+                (p) => this.updateStatus(`PaddleOCR: Loading ${(p * 50).toFixed(0)}%`)
             );
             this.detSession = await ort.InferenceSession.create(detBuffer);
 
@@ -43,7 +43,7 @@ export class PaddleOCR {
             this.updateStatus('PaddleOCR: loading recognition model…');
             const recBuffer = await fetchWithProgress(
                 modelBase + this.manifest.rec.path,
-                (p) => this.updateStatus(`PaddleOCR: rec ${(p * 100).toFixed(0)}%`)
+                (p) => this.updateStatus(`PaddleOCR: Loading ${(50 + p * 50).toFixed(0)}%`)
             );
             this.recSession = await ort.InferenceSession.create(recBuffer);
 

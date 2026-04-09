@@ -130,7 +130,9 @@ async function ensureModelLoaded(requestedAlias) {
         currentModelAlias = requestedAlias;
         isOcrReady = true;
         // Tesseract-specific: optimize for VN text blocks
-        await ocrWorker.setParameters({ tessedit_pageseg_mode: '6', preserve_interword_spaces: '0' });
+        await ocrWorker.setParameters({ 
+            tessedit_pageseg_mode: '6'
+        });
         setOCRStatus('ready', '🟢 OCR Ready');
     } catch (e) {
         setOCRStatus('error', '🔴 Load Error');
@@ -146,7 +148,7 @@ async function initOCR() {
     // Since #model-selector now handles engines, we default Tesseract to 'jpn_best'
     await ensureModelLoaded('jpn_best');
 }
-initOCR();
+// initOCR(); // (REMOVED) - Logic now handled by globalInitialize to prevent double-load.
 
 if (modeSelector) {
     modeSelector.addEventListener('change', () => {
@@ -158,6 +160,7 @@ if (modeSelector) {
 if (panicBtn) {
     panicBtn.onclick = () => {
         engineSelector.value = 'tesseract';
+        engineSelector.dispatchEvent(new Event('change'));
         modeSelector.value = 'multi';
         modeSelector.disabled = false;
         panicBtn.classList.add('active');
@@ -243,6 +246,8 @@ async function startCapture() {
 function stopCapture() {
     if (videoStream) videoStream.getTracks().forEach(t => t.stop());
     videoStream = null; vnVideo.srcObject = null;
+    if (autoCaptureTimer) { clearInterval(autoCaptureTimer); autoCaptureTimer = null; }
+    if (stabilityTimer) { clearTimeout(stabilityTimer); stabilityTimer = null; }
     document.getElementById('placeholder').style.display = 'flex';
     const hint = document.getElementById('selection-hint');
     if (hint) hint.classList.remove('visible');
@@ -277,8 +282,8 @@ if (selectionOverlay) {
         const hint = document.getElementById('selection-hint');
         if (hint) hint.classList.remove('visible');
     };
-    window.onmousemove = e => { if (isSelecting) { const pos = getMousePos(e); currentX = pos.x; currentY = pos.y; drawSelectionRect(); } };
-    window.onmouseup = e => {
+    window.addEventListener('mousemove', e => { if (isSelecting) { const pos = getMousePos(e); currentX = pos.x; currentY = pos.y; drawSelectionRect(); } });
+    window.addEventListener('mouseup', e => {
         if (!isSelecting) return;
         isSelecting = false; const pos = getMousePos(e);
         currentX = pos.x; currentY = pos.y;
@@ -300,7 +305,7 @@ if (selectionOverlay) {
             if (hint) hint.classList.add('visible');
         }
         drawSelectionRect();
-    };
+    });
     function drawSelectionRect() {
         const canvasW = selectionOverlay.width, canvasH = selectionOverlay.height;
         ctx.clearRect(0, 0, canvasW, canvasH);
@@ -324,18 +329,28 @@ if (selectionOverlay) {
 // ==========================================
 
 function checkAutoCapture() {
-    if (!autoToggle || !autoToggle.checked || !videoStream || !selectionRect || isProcessing) return;
+    if (!autoToggle || !autoToggle.checked || !videoStream || !selectionRect) return;
+
+    // 1. Maintain scout data even during processing to prevent "stale" comparison after long loads.
+    // IMPORTANT: Auto-capture must keep lastScoutData fresh even while isProcessing is true,
+    // otherwise it will "wake up blind" after long operations (like PaddleOCR load)
+    // and fire phantom double OCR triggers.
     const sel = denormalizeSelection(selectionRect, vnVideo, selectionOverlay);
     scoutCtx.drawImage(vnVideo, sel.x, sel.y, sel.w, sel.h, 0, 0, 32, 32);
     const pix = scoutCtx.getImageData(0, 0, 32, 32).data;
     const currentData = new Uint32Array(pix.buffer);
-    if (lastScoutData) {
+
+    // 2. Only run comparison and stability triggers if we aren't already busy
+    if (!isProcessing && lastScoutData) {
         let diffPixels = 0;
         for (let i = 0; i < currentData.length; i++) { if (currentData[i] !== lastScoutData[i]) diffPixels++; }
         if (diffPixels > 10) {
             clearTimeout(stabilityTimer);
             autoToggle.parentElement.classList.add('active');
-            stabilityTimer = setTimeout(() => { autoToggle.parentElement.classList.remove('active'); captureFrame(selectionRect); }, 800);
+            stabilityTimer = setTimeout(() => { 
+                autoToggle.parentElement.classList.remove('active'); 
+                captureFrame(selectionRect); 
+            }, 800);
         }
     }
     lastScoutData = new Uint32Array(currentData);
@@ -461,8 +476,11 @@ function boostContrast(canvas, factor = 1.08) {
         d[i+2] = Math.min(255, d[i+2] * factor);
     }
 
-    ctx.putImageData(img, 0, 0);
-    return canvas;
+    const out = document.createElement("canvas");
+    out.width = canvas.width;
+    out.height = canvas.height;
+    out.getContext("2d").putImageData(img, 0, 0);
+    return out;
 }
 
 async function captureFrame(rect) {
@@ -478,7 +496,7 @@ async function captureFrame(rect) {
 
     const rawCropCanvas = document.createElement('canvas');
     rawCropCanvas.width = cw_; rawCropCanvas.height = ch_;
-    rawCropCanvas.getContext('2d', { willReadFrequently: true }).drawImage(vnVideo, cx_, cy_, cw_, ch_, 0, 0, cw_, ch_);
+    rawCropCanvas.getContext('2d').drawImage(vnVideo, cx_, cy_, cw_, ch_, 0, 0, cw_, ch_);
 
     // 6. Logging for verification
     console.log(`[VN-OCR] Crop Source: sx=${cx_}, sy=${cy_}, sw=${cw_}, sh=${ch_}`);
@@ -552,7 +570,7 @@ function adaptiveThreshold(canvas, ctx, res, { windowDivisor, thresholdFactor, p
     canvas = sharpenCanvas(canvas);
     if (preDenoise) canvas = medianFilter(canvas);
 
-    const octx = res.getContext('2d', { willReadFrequently: true });
+    const octx = res.getContext('2d');
     octx.drawImage(canvas, 0, 0);
     const id2 = octx.getImageData(0, 0, res.width, res.height);
     const d2 = id2.data;
@@ -622,7 +640,7 @@ function applyPreprocessing(canvas, mode) {
         }
 
         ctx.putImageData(id2, 0, 0);
-        canvas = medianFilter(canvas);
+        canvas = medianFilter(res);
         workingId = id2;
     } else if (mode === 'adaptive') {
         workingId = adaptiveThreshold(canvas, ctx, res, { windowDivisor: 8, thresholdFactor: 0.85, preInvert: true, preDenoise: false });
@@ -726,12 +744,12 @@ function lr_upscale(canvas, f) {
 
 function lr_addPadding(canvas, pad) {
     const res = document.createElement('canvas');
-    res.width = canvas.width;
+    res.width = canvas.width + pad * 2;
     res.height = canvas.height + pad * 2;
     const ctx = res.getContext('2d');
     ctx.fillStyle = "white";
     ctx.fillRect(0, 0, res.width, res.height);
-    ctx.drawImage(canvas, 0, pad);
+    ctx.drawImage(canvas, pad, pad);
     return res;
 }
 
@@ -819,6 +837,8 @@ function medianFilter(canvas) {
     const d = id.data;
     const output = ctx.createImageData(w, h);
     const od = output.data;
+    // Copy source pixels to output first (preserves 1px border)
+    od.set(d);
     // Median-of-9 via partial sorting network (avoids Array.sort per pixel)
     const v = new Uint8Array(9);
     function swap(a, b) { if (v[a] > v[b]) { const t = v[a]; v[a] = v[b]; v[b] = t; } }
@@ -853,7 +873,7 @@ function medianFilter(canvas) {
     return resCanvas;
 }
 
-/** Mutates input canvas in-place. */
+/** Returns a new inverted canvas. */
 function invertCanvas(canvas) {
     const ctx = canvas.getContext('2d');
     const id = ctx.getImageData(0, 0, canvas.width, canvas.height);
@@ -863,8 +883,11 @@ function invertCanvas(canvas) {
         d[i + 1] = 255 - d[i + 1];
         d[i + 2] = 255 - d[i + 2];
     }
-    ctx.putImageData(id, 0, 0);
-    return canvas;
+    const out = document.createElement('canvas');
+    out.width = canvas.width;
+    out.height = canvas.height;
+    out.getContext('2d').putImageData(id, 0, 0);
+    return out;
 }
 
 function sharpenCanvas(canvas) {
@@ -874,6 +897,8 @@ function sharpenCanvas(canvas) {
     const d = id.data;
     const output = ctx.createImageData(w, h);
     const od = output.data;
+    // Copy source pixels to output first (preserves 1px border)
+    od.set(d);
     const kernel = [0, -1, 0, -1, 5, -1, 0, -1, 0];
     for (let y = 1; y < h - 1; y++) {
         for (let x = 1; x < w - 1; x++) {
@@ -1013,15 +1038,15 @@ if (clearHistoryBtn) {
     };
 }
 
-refreshOcrBtn.onclick = () => { if (selectionRect) captureFrame(selectionRect); };
+if (refreshOcrBtn) refreshOcrBtn.onclick = () => { if (selectionRect) captureFrame(selectionRect); };
 
 function initHelpModal() {
     const helpBtn = document.getElementById('help-btn'), helpModal = document.getElementById('help-modal'), helpClose = document.getElementById('help-close');
     if (!helpBtn || !helpModal) return;
     helpBtn.onclick = (e) => { e.stopPropagation(); helpModal.classList.add('active'); };
     if (helpClose) helpClose.onclick = () => helpModal.classList.remove('active');
-    window.onclick = (e) => { if (e.target === helpModal) helpModal.classList.remove('active'); };
-    window.onkeydown = (e) => { if (e.key === 'Escape') helpModal.classList.remove('active'); };
+    window.addEventListener('click', (e) => { if (e.target === helpModal) helpModal.classList.remove('active'); });
+    window.addEventListener('keydown', (e) => { if (e.key === 'Escape') helpModal.classList.remove('active'); });
 }
 
 // ==========================================
@@ -1029,15 +1054,28 @@ function initHelpModal() {
 // ==========================================
 
 async function loadPaddleOCR() {
+    if (window.paddleProvider && window.paddleProvider.isLoaded) {
+        setOCRStatus('ready', '🟢 PaddleOCR Ready');
+        return;
+    }
+    if (isProcessing) return;
+    isProcessing = true;
     try {
-        setPaddleProvider(PaddleProviderV3);
-        await loadPaddleModels((msg) => setOCRStatus('loading', msg));
-        const status = getPaddleStatus();
-        setOCRStatus('ready', `🟢 PaddleOCR ${status.version} Ready`);
+        window.paddleProvider = new PaddleOCR(
+            './models/paddle/manifest.json',
+            './js/onnx/',
+            (msg) => setOCRStatus('loading', msg)
+        );
+        await window.paddleProvider.loadModels();
+        setOCRStatus('ready', '🟢 PaddleOCR Ready');
     } catch (err) {
+        console.error('Failed to load PaddleOCR', err);
         setOCRStatus('error', '🔴 PaddleOCR Load Failed');
+        window.paddleProvider = null;
         if (engineSelector) engineSelector.value = previousMode;
         setSetting('ocrMode', previousMode);
+    } finally {
+        isProcessing = false;
     }
 }
 
@@ -1055,71 +1093,78 @@ function initSettings() {
 }
 
 // 6.2 PaddleOCR Toggle and Warning Logic
-let previousMode = engineSelector?.value || "tesseract";
+// Normalize current engine state from settings
+let previousMode = (getSetting('ocrMode') === 'paddle') ? 'paddle' : 'tesseract';
 
-engineSelector.addEventListener('change', async () => {
-    const engine = engineSelector.value;
+async function switchEngine(newMode, force = false) {
+    // Re-entry guard: don't reload if already active (unless forced)
+    const isCurrentLoaded = (newMode === 'tesseract' && ocrWorker) || (newMode === 'paddle' && window.paddleProvider?.isLoaded);
+    if (!force && newMode === previousMode && isCurrentLoaded) return;
 
-    // Enable preprocessing only for Tesseract
-    modeSelector.disabled = (engine !== 'tesseract');
+    // Teardown previous engine
+    if (previousMode === 'tesseract' && ocrWorker) {
+        ocrWorker.terminate();
+        ocrWorker = null;
+    }
 
-    if (engine === 'tesseract') {
-        // Dispose Paddle
-        if (window.paddleProvider) {
-            console.log("Disposing PaddleOCR sessions...");
-            window.paddleProvider.dispose();
-            window.paddleProvider = null;
-        }
-        // Restart Tesseract worker
-        initOCR();
-    } else if (engine === 'paddle') {
-        console.log("Engine switched to PaddleOCR");
-        // Terminate Tesseract worker to save memory
-        if (ocrWorker) {
-            console.log("Terminating Tesseract worker...");
-            ocrWorker.terminate();
-            ocrWorker = null;
-        }
+    if (previousMode === 'paddle' && window.paddleProvider) {
+        await window.paddleProvider.dispose();
+        window.paddleProvider = null;
+    }
 
-        // Lazy-load PaddleOCR on selection
-        if (!window.paddleProvider && !isProcessing) {
-            isProcessing = true; // Global lock
-            window.paddleProvider = new PaddleOCR(
-                './models/paddle/manifest.json',
-                './js/onnx/',
-                (msg) => {
-                    const statusPill = document.getElementById('paddle-status-pill');
-                    if (statusPill) statusPill.textContent = msg;
-                }
-            );
-            try {
-                await window.paddleProvider.loadModels();
-            } catch (e) {
-                console.error('Failed to load PaddleOCR', e);
-                setOCRStatus('error', 'PaddleOCR failed to load');
-                window.paddleProvider = null;
-            } finally {
-                isProcessing = false;
-                if (window.paddleProvider && window.paddleProvider.isLoaded) {
-                    setOCRStatus('ready', '🟢 PaddleOCR Ready');
-                }
-            }
+    // Update settings + state
+    previousMode = newMode;
+    setSetting('ocrMode', newMode);
+
+    // Sync preprocessing UI
+    if (typeof modeSelector !== 'undefined' && modeSelector) {
+        modeSelector.disabled = (newMode === 'paddle');
+        
+        // Ensure preprocessing mode is always valid when using Tesseract
+        if (newMode === 'tesseract') {
+            modeSelector.value = 'default_mini';
+            setSetting('ocrMode', 'default_mini');
         }
     }
+
+    // Load new engine
+    if (newMode === 'tesseract') {
+        await initOCR();
+    } else if (newMode === 'paddle') {
+        await loadPaddleOCR();
+    }
+}
+
+engineSelector.addEventListener('change', async () => {
+    const newMode = engineSelector.value;
+
+    // Intercept PaddleOCR if warnings are enabled
+    if (newMode === 'paddle' && getSetting('showHeavyWarning')) {
+        engineSelector.value = previousMode;
+        document.getElementById('paddle-modal').classList.add('active');
+        return;
+    }
+
+    // Normal engine switch
+    await switchEngine(newMode);
 });
 
 
 // 6.3 Modal Event Listeners
-document.getElementById('paddle-continue')?.addEventListener('click', () => {
-    const doNotShowAgain = document.getElementById('heavy-warning-checkbox').checked;
-    if (doNotShowAgain) setSetting('showHeavyWarning', false);
-    setSetting('ocrMode', 'paddle');
+document.getElementById('paddle-continue')?.addEventListener('click', async () => {
+    const checkbox = document.getElementById('heavy-warning-checkbox');
+    if (checkbox?.checked) {
+        setSetting('showHeavyWarning', false);
+    }
+
+    engineSelector.value = 'paddle';
+    await switchEngine('paddle');
+
     document.getElementById('paddle-modal').classList.remove('active');
-    loadPaddleOCR();
 });
 
 document.getElementById('paddle-cancel')?.addEventListener('click', () => {
-    if (engineSelector) engineSelector.value = previousMode;
+    engineSelector.value = previousMode;
     document.getElementById('paddle-modal').classList.remove('active');
 });
 
@@ -1142,9 +1187,29 @@ document.getElementById('banner-close')?.addEventListener('click', () => {
 function globalInitialize() {
     initHelpModal();
     initSettings();
-    modeSelector.disabled = (engineSelector.value !== 'tesseract');
 
-    // Service Worker
+    // UI Synchronization: Ensure the dropdowns match saved settings early
+    const savedMode = getSetting('ocrMode');
+    const isPaddle = (savedMode === 'paddle');
+
+    if (isPaddle) {
+        if (engineSelector) engineSelector.value = 'paddle';
+        if (modeSelector) modeSelector.disabled = true;
+    } else {
+        if (engineSelector) engineSelector.value = 'tesseract';
+        if (modeSelector) {
+            // On first load, ensure mode selector is valid
+            modeSelector.disabled = false;
+            modeSelector.value = savedMode || 'default_mini';
+        }
+    }
+
+    // Startup Engine Load: Load the saved engine exactly once
+    switchEngine(isPaddle ? 'paddle' : 'tesseract');
+
+
+
+    // Service Worker with update notification
     if ('serviceWorker' in navigator) {
         const disableViaParam = new URLSearchParams(location.search).has('no-sw');
         const disableViaStorage = localStorage.getItem('vn-ocr-disable-sw') === 'true';
@@ -1152,6 +1217,13 @@ function globalInitialize() {
             navigator.serviceWorker.getRegistrations().then(regs => regs.forEach(r => r.unregister()));
         } else {
             navigator.serviceWorker.register('service-worker.js').catch(e => console.warn('SW registration failed:', e));
+            navigator.serviceWorker.addEventListener('controllerchange', () => {
+                const bar = document.createElement('div');
+                bar.style.cssText = 'position:fixed;top:0;left:0;right:0;padding:10px;background:var(--accent);color:#000;text-align:center;font-weight:700;z-index:99999;cursor:pointer;';
+                bar.textContent = 'Update available — click to refresh';
+                bar.onclick = () => location.reload();
+                document.body.appendChild(bar);
+            });
         }
     }
 
@@ -1163,12 +1235,37 @@ function globalInitialize() {
     if (refreshOcrBtn) refreshOcrBtn.ariaLabel = "Manual Re-Capture";
     if (autoToggle?.parentElement) autoToggle.parentElement.ariaLabel = "Toggle Automation";
 
-    // History Loading
+    // History Loading (batch — avoid N localStorage writes)
     if (historyContent) {
         const savedV2 = localStorage.getItem('vn-ocr-public-history-v2');
         if (savedV2) {
             const lines = JSON.parse(savedV2);
-            lines.reverse().forEach(line => addOCRResultToUI(line));
+            lines.reverse().forEach(line => {
+                const clean = line.replace(/\s+/g, '').trim();
+                if (!clean) return;
+                const item = document.createElement('p');
+                item.className = 'history-item';
+                item.setAttribute('lang', 'ja');
+                const span = document.createElement('span');
+                span.textContent = clean;
+                item.appendChild(span);
+                const btnRow = document.createElement('div');
+                btnRow.className = 'item-btns';
+                const speakBtn = document.createElement('button');
+                speakBtn.setAttribute('data-action', 'speak');
+                speakBtn.textContent = '🔊';
+                speakBtn.ariaLabel = 'Speak line';
+                const copyBtn = document.createElement('button');
+                copyBtn.setAttribute('data-action', 'copy');
+                copyBtn.textContent = '📋';
+                copyBtn.ariaLabel = 'Copy line';
+                btnRow.append(speakBtn, copyBtn);
+                item.appendChild(btnRow);
+                historyContent.prepend(item);
+            });
+            if (historyContent.children.length > 0) {
+                latestText.textContent = historyContent.querySelector('span')?.textContent || 'Waiting for capture...';
+            }
         }
     }
 

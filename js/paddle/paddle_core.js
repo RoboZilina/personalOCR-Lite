@@ -1,6 +1,6 @@
 // Shared canvas to reduce GC pressure
 const sharedCanvas = document.createElement('canvas');
-const sharedCtx = sharedCanvas.getContext('2d', { willReadFrequently: true });
+const sharedCtx = sharedCanvas.getContext('2d');
 
 // Pre-allocated buffers for common OCR sizes to reduce allocation churn
 let detInputBuffer = null;
@@ -96,10 +96,11 @@ export function canvasToFloat32Tensor(canvas, inputSize, normalize) {
             }
         }
 
-        // Return a fresh TypedArray view if using shared buffer, 
-        // OR the new array. Note: ONNX Tensor will consume this data.
-        // We use .slice() or just return the shared one if the model doesn't mutate it.
-        // ORT Tensor.create takes a copy unless it's a specific type.
+        // Always return a copy when using shared buffers to prevent
+        // data corruption if ORT holds a reference during multi-box recognition.
+        if (chw === detInputBuffer || chw === recInputBuffer) {
+            return chw.slice();
+        }
         return chw;
     } catch (err) {
         console.error("PaddleOCR: Tensor conversion error:", err);
@@ -122,7 +123,7 @@ export function resizeCanvas(sourceCanvas, maxWidth, maxHeight) {
     const dst = document.createElement('canvas');
     dst.width = dstW;
     dst.height = dstH;
-    const ctx = dst.getContext('2d', { willReadFrequently: true });
+    const ctx = dst.getContext('2d');
     ctx.imageSmoothingEnabled = true;
     ctx.drawImage(sourceCanvas, 0, 0, dstW, dstH);
 
@@ -149,7 +150,7 @@ export function cropBoxFromCanvas(canvas, box) {
     dst.width = w;
     dst.height = h;
 
-    const ctx = dst.getContext('2d', { willReadFrequently: true });
+    const ctx = dst.getContext('2d');
 
     try {
         ctx.drawImage(
