@@ -54,8 +54,9 @@ const state = {
 /** Unified Readiness API (Hardening Phase) */
 function isEngineReady(engine) {
     if (engine === 'tesseract') return !!isOcrReady;
-    if (engine === 'paddle' || engine.startsWith('paddle_')) {
-        return !!(window.paddleProvider && window.paddleProvider.isLoaded);
+    const normalized = engine.replace(/_.+$/, "");
+    if (normalized === 'paddle') {
+        return !!(currentEngine && currentEngine.id === 'paddle' && currentEngine.isLoaded);
     }
     return false;
 }
@@ -74,7 +75,6 @@ const ocrStatus = document.getElementById('ocr-status');
 const refreshOcrBtn = document.getElementById('refresh-ocr-btn');
 const clearHistoryBtn = document.getElementById('clear-history-btn');
 const engineSelector = document.getElementById('model-selector');
-const panicBtn = document.getElementById('panic-btn');
 const modeSelector = document.getElementById('mode-selector');
 const autoToggle = document.getElementById('auto-capture-toggle');
 const autoCaptureBtn = document.getElementById('auto-capture-btn');
@@ -269,11 +269,6 @@ async function ensureModelLoaded(requestedAlias) {
         setOCRStatus('ready', '🟢 OCR Ready');
     } catch (e) {
         setOCRStatus('error', '🔴 Load Error');
-        if (requestedAlias !== 'jpn' && !ensureModelLoaded._fallback) {
-            ensureModelLoaded._fallback = true;
-            try { await ensureModelLoaded('jpn'); }
-            finally { ensureModelLoaded._fallback = false; }
-        }
     }
 }
 
@@ -385,7 +380,7 @@ async function preprocessForEngine(engineId, rawCanvas, mode, lineCount) {
         return applyPaddlePreprocessing(rawCanvas, lineCount);
     }
 
-    // Default fallback:
+    // Default handler:
     return [rawCanvas];
 }
 
@@ -399,16 +394,6 @@ if (modeSelector) {
 }
 
 
-if (panicBtn) {
-    panicBtn.onclick = async () => {
-        await switchEngineModular('tesseract');
-        modeSelector.value = 'last_resort';
-        modeSelector.disabled = false;
-        panicBtn.classList.add('active');
-        setTimeout(() => panicBtn.classList.remove('active'), 1000);
-        if (selectionRect) captureFrame(selectionRect);
-    };
-}
 
 // ==========================================
 // 1. Audio & TTS
@@ -832,9 +817,6 @@ async function captureFrame(rect) {
         if (engine === 'tesseract') {
             await ensureModelLoaded('jpn_best');
             setOCRStatus('processing', '🟡 Reading...');
-        } else if (engine === 'paddle' && !window.paddleProvider) {
-            setOCRStatus('error', 'PaddleOCR not ready');
-            return;
         }
 
         // 3. Unified Inference Loop (Polymorphic)
@@ -894,7 +876,7 @@ async function captureFrame(rect) {
         setTimeout(() => {
             isProcessing = false;
             const engine = engineSelector.value;
-            if (engine.startsWith('paddle') && window.paddleProvider?.isLoaded) {
+            if (engine.startsWith('paddle') && currentEngine?.id === 'paddle' && currentEngine?.isLoaded) {
                 setOCRStatus('ready', '🟢 PaddleOCR Ready');
             } else if (isOcrReady && engine === 'tesseract') {
                 setOCRStatus('ready', '🟢 OCR Ready');
@@ -1393,31 +1375,8 @@ function initHelpModal() {
 // 6. Settings & PaddleOCR Implementation
 // ==========================================
 
-async function loadPaddleOCR() {
-    if (window.paddleProvider && window.paddleProvider.isLoaded) {
-        setOCRStatus('ready', '🟢 PaddleOCR Ready');
-        return;
-    }
-    if (isProcessing) return;
-    isProcessing = true;
-    try {
-        window.paddleProvider = new PaddleOCR(
-            './models/paddle/manifest.json',
-            './js/onnx/',
-            (msg) => setOCRStatus('loading', msg)
-        );
-        await window.paddleProvider.loadModels();
-        setOCRStatus('ready', '🟢 PaddleOCR Ready');
-    } catch (err) {
-        console.error('Failed to load PaddleOCR', err);
-        setOCRStatus('error', '🔴 PaddleOCR Load Failed');
-        window.paddleProvider = null;
-        if (engineSelector) engineSelector.value = previousMode;
-        setSetting('ocrMode', previousMode);
-    } finally {
-        isProcessing = false;
-    }
-}
+// 6. Settings Implementation
+// (Legacy engine loading functions removed in favor of modular switcher)
 
 // 6.1 Initialization
 function initSettings() {
@@ -1563,9 +1522,12 @@ document.getElementById('banner-close')?.addEventListener('click', () => {
 });
 
 // 6.5 Global Initialization
-function globalInitialize() {
+async function globalInitialize() {
     initHelpModal();
     initSettings();
+
+    // Ensure panic button is removed from UI as fallback/panic logic is retired
+    document.getElementById('panic-btn')?.remove();
 
     // UI Synchronization: Ensure the dropdowns match saved settings early
     const savedMode = getSetting('ocrMode');
