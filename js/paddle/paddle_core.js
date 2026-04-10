@@ -185,9 +185,9 @@ export async function runPaddleOCR(paddle, canvas, updateStatus) {
             const crop = cropBoxFromCanvas(canvas, box);
             if (!crop) continue;
 
-            const text = await paddle.recognize(crop);
-            if (text && text.trim()) {
-                results.push({ box, text });
+            const result = await paddle.recognize(crop);
+            if (result && result.text && result.text.trim()) {
+                results.push({ box, text: result.text.trim() });
             }
             // Explicitly Clear Crop Canvas
             crop.width = 0; crop.height = 0;

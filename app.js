@@ -677,9 +677,10 @@ async function captureFrame(rect) {
 
                 if (i === 0) updateDebugThumb(rawCropCanvas);
 
+                if (!clean.width || !clean.height) continue;
                 const result = await window.paddleProvider.recognize(clean);
-                if (result && typeof result === 'string' && result.trim()) {
-                    finalText += result.trim() + '\n';
+                if (result && result.text && result.text.trim()) {
+                    finalText += result.text.trim() + '\n';
                 }
             }
 

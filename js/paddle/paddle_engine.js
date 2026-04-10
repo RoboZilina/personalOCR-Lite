@@ -255,10 +255,10 @@ export class PaddleOCR {
                 }
                 texts.push(chars.join(''));
             }
-            return texts[0] || '';
+            return { text: texts[0] || '' };
         } catch (err) {
             console.error("PaddleOCR: CTC Decoding Error:", err);
-            return '';
+            return { text: '' };
         }
     }
 
