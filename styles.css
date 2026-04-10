@@ -356,18 +356,10 @@ body.light-theme .guide-card { background: #f1f5f9; border-color: #e2e8f0; }
 
 
 
-.guide-line {
-    position: absolute;
-    height: 2px;
-    background: rgba(0, 255, 0, 0.8);
-    pointer-events: none;
-}
 
 
 
 
 
-.paddle-line-btn.active {
-    background: rgba(0, 200, 255, 0.4);
-    border-color: rgba(0, 200, 255, 0.9);
-}
+
+

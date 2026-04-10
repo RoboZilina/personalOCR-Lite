@@ -1,3 +1,30 @@
+/*
+  VN‑OCR HARDENING PHASE:
+  DO NOT MODIFY the following functions during patches:
+    - captureFrame
+    - switchEngine
+    - drawSelectionRect
+    - sliceImageIntoLines
+    - loadPaddleOCR
+    - loadTesseract
+  These functions are frozen to prevent regressions.
+*/
+
+/**
+ * VN‑OCR ARCHITECTURE OVERVIEW:
+ * -----------------------------------------
+ * This application operates a dual-engine OCR pipeline:
+ * 1. Tesseract Engine: Standard LSTM-based OCR. Accessible via 'Image Processing Modes' 
+ *    (Adaptive, Multi-Pass, etc.) which preprocess the crop before inference.
+ * 2. PaddleOCR Engine: High-precision neural recognizer. Uses an internal sequential 
+ *    slicing pipeline for multi-line support. Enforces raw input (preprocessors disabled).
+ * 
+ * STATE MANAGEMENT:
+ * State is mirrored in the `state` object (Auditability Phase) and checked via the 
+ * `isEngineReady` API. Logic currently reads primary state from DOM/Settings to 
+ * maintain compatibility with the legacy baseline.
+ */
+
 import {
     loadSettings,
     getSetting,
@@ -11,6 +38,26 @@ import {
 } from './js/paddle/paddle_core.js';
 
 import { PaddleOCR } from './js/paddle/paddle_engine.js';
+
+// Central State Mirror (Auditability Phase)
+const state = {
+    engine: null,
+    paddleLineCount: null,
+    mode: null,
+    ready: {
+        tesseract: false,
+        paddle: false
+    }
+};
+
+/** Unified Readiness API (Hardening Phase) */
+function isEngineReady(engine) {
+    if (engine === 'tesseract') return !!isOcrReady;
+    if (engine === 'paddle' || engine.startsWith('paddle_')) {
+        return !!(window.paddleProvider && window.paddleProvider.isLoaded);
+    }
+    return false;
+}
 
 // DOM Elements
 const selectWindowBtn = document.getElementById('select-window-btn');
@@ -27,6 +74,7 @@ const engineSelector = document.getElementById('model-selector');
 const panicBtn = document.getElementById('panic-btn');
 const modeSelector = document.getElementById('mode-selector');
 const autoToggle = document.getElementById('auto-capture-toggle');
+const autoCaptureBtn = document.getElementById('auto-capture-btn');
 const upscaleSlider = document.getElementById('upscale-slider');
 const upscaleVal = document.getElementById('upscale-val');
 
@@ -110,10 +158,10 @@ async function ensureModelLoaded(requestedAlias) {
         let useGzip = true;
         let actualLang = 'jpn';
         if (requestedAlias === 'jpn_best') {
-            langPath = 'https://cdn.jsdelivr.net/gh/tesseract-ocr/tessdata_best@main/';
+            langPath = 'https://cdn.jsdelivr.net/gh/tesseract-ocr/tessdata_best@4.0.0/';
             useGzip = false;
         } else if (requestedAlias === 'jpn_fast') {
-            langPath = 'https://cdn.jsdelivr.net/gh/tesseract-ocr/tessdata_fast@main/';
+            langPath = 'https://cdn.jsdelivr.net/gh/tesseract-ocr/tessdata_fast@4.0.0/';
             useGzip = false;
         } else if (requestedAlias === 'jpn_vert') actualLang = 'jpn_vert';
 
@@ -200,6 +248,8 @@ function updatePaddlePanelVisibility() {
 if (modeSelector) {
     modeSelector.addEventListener('change', () => {
         applyUIToSettings();
+        state.mode = modeSelector.value;
+        console.log('[State Mirror] Mode updated:', state.mode);
     });
 }
 
@@ -428,10 +478,22 @@ if (autoToggle) {
 // 5. OCR Processing Core
 // ==========================================
 
-/** BT.601 luma from RGB components. */
+/** 
+ * BT.601 luma from RGB components.
+ * @param {number} r - Red (0-255)
+ * @param {number} g - Green (0-255)
+ * @param {number} b - Blue (0-255)
+ * @returns {number} Weighted grayscale value.
+ */
 const lumaBT601 = (r, g, b) => 0.299 * r + 0.587 * g + 0.114 * b;
 
-/** Denormalize a normalized selection rect to video pixel coordinates. */
+/** 
+ * Denormalize a normalized selection rect to video pixel coordinates.
+ * @param {Object} rect - Normalized {x, y, width, height} (0-1).
+ * @param {HTMLVideoElement} videoEl - Source video reference.
+ * @param {HTMLCanvasElement} overlayEl - Reference for actual CSS display dimensions.
+ * @returns {Object} Pixel coordinates {x, y, w, h}.
+ */
 function denormalizeSelection(rect, videoEl, overlayEl) {
     const vWidth = videoEl.videoWidth, vHeight = videoEl.videoHeight;
     const cWidth = overlayEl.width, cHeight = overlayEl.height;
@@ -449,7 +511,11 @@ function denormalizeSelection(rect, videoEl, overlayEl) {
     return { x, y, w, h };
 }
 
-/** Update the debug thumbnail from a preprocessed canvas. */
+/** 
+ * Update the debug thumbnail from a preprocessed canvas.
+ * @param {HTMLCanvasElement} canvas - The preprocessed image to display.
+ * @sideeffect Updates the 'debug-crop-img' src via DataURL.
+ */
 function updateDebugThumb(canvas) {
     const debugThumb = document.getElementById('debug-crop-img');
     if (!debugThumb || !canvas) return;
@@ -461,7 +527,13 @@ function updateDebugThumb(canvas) {
     debugThumb.style.display = 'block';
 }
 
-// Helper: scale canvas down to fit bounding box (never upscales)
+/**
+ * Helper: scale canvas down to fit bounding box (never upscales).
+ * @param {HTMLCanvasElement} c - Source canvas.
+ * @param {number} maxW - Bounding width.
+ * @param {number} maxH - Bounding height.
+ * @returns {HTMLCanvasElement} A new scaled canvas.
+ */
 function scaleCanvasToThumb(c, maxW, maxH) {
     const r = document.createElement('canvas');
     const ratio = Math.min(maxW / c.width, maxH / c.height, 1);
@@ -473,6 +545,11 @@ function scaleCanvasToThumb(c, maxW, maxH) {
 
 // === UNIVERSAL MICRO-FILTER HELPERS ===
 
+/**
+ * Trims empty (fully transparent) rows from the top and bottom of a canvas.
+ * @param {HTMLCanvasElement} canvas - Binary or alpha-containing canvas.
+ * @returns {HTMLCanvasElement} A new trimmed canvas (or original if no trim possible).
+ */
 function trimEmptyVertical(canvas) {
     const ctx = canvas.getContext("2d");
     const { width, height } = canvas;
@@ -508,6 +585,13 @@ function trimEmptyVertical(canvas) {
     return out;
 }
 
+/**
+ * Adds a horizontal padding of empty pixels to the left side of a canvas.
+ * used to improve recognition start-char accuracy.
+ * @param {HTMLCanvasElement} canvas - Source image.
+ * @param {number} [px=4] - Amount of padding in pixels.
+ * @returns {HTMLCanvasElement} A new padded canvas.
+ */
 function padLeft(canvas, px = 4) {
     const out = document.createElement("canvas");
     out.width = canvas.width + px;
@@ -517,6 +601,12 @@ function padLeft(canvas, px = 4) {
     return out;
 }
 
+/**
+ * Linearly increases the contrast of a canvas by scaling RGB values.
+ * @param {HTMLCanvasElement} canvas - Source image.
+ * @param {number} [factor=1.08] - Contrast multiplier.
+ * @returns {HTMLCanvasElement} A new high-contrast canvas.
+ */
 function boostContrast(canvas, factor = 1.08) {
     const ctx = canvas.getContext("2d");
     const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
@@ -1126,6 +1216,7 @@ if (clearHistoryBtn) {
 }
 
 if (refreshOcrBtn) refreshOcrBtn.onclick = () => { if (selectionRect) captureFrame(selectionRect); };
+if (autoCaptureBtn) autoCaptureBtn.onclick = () => autoToggle?.click();
 
 function initHelpModal() {
     const helpBtn = document.getElementById('help-btn'), helpModal = document.getElementById('help-modal'), helpClose = document.getElementById('help-close');
@@ -1186,6 +1277,11 @@ function initSettings() {
     } else {
         engineSelector.value = `paddle_${paddleLines}`;
     }
+
+    // Sync State Mirror (Initial)
+    state.engine = engineSelector.value;
+    state.mode = mode;
+    state.paddleLineCount = paddleLines;
 
     // Update guides if present (handled via drawSelectionRect indirectly)
     if (selectionRect) drawSelectionRect();
@@ -1271,6 +1367,11 @@ engineSelector.addEventListener('change', async () => {
     // 4. Persist engine mode
     setSetting('ocrMode', baseMode);
 
+    // Sync State Mirror
+    state.engine = engineSelector.value;
+    state.paddleLineCount = lineCount || state.paddleLineCount;
+    console.log('[State Mirror] Engine update:', state.engine);
+
     // 5. Switch engine using base mode only
     await switchEngine(baseMode);
 
@@ -1287,6 +1388,11 @@ document.getElementById('paddle-continue')?.addEventListener('click', async () =
 
     const count = getSetting('paddleLineCount') || 3;
     engineSelector.value = `paddle_${count}`;
+    
+    // Sync State Mirror
+    state.engine = engineSelector.value;
+    state.paddleLineCount = count;
+    
     await switchEngine('paddle');
 
     document.getElementById('paddle-modal').classList.remove('active');
@@ -1310,6 +1416,10 @@ document.getElementById('banner-switch-default')?.addEventListener('click', asyn
         modeSelector.disabled = false;
         modeSelector.value = 'default_mini';
     }
+
+    // Sync State Mirror
+    state.engine = 'tesseract';
+    state.mode = 'default_mini';
 
     // 3. Trigger the actual engine switch to unload Paddle and load Tesseract
     await switchEngine('tesseract');
@@ -1493,4 +1603,14 @@ globalInitialize();
         closeMenu();
     };
 })();
+
+/** Public API Namespace (Auditability Phase) */
+window.VNOCR = {
+    version: '1.3.2-gold',
+    state: state,
+    isReady: isEngineReady,
+    drawSelectionRect: window.drawSelectionRect,
+    captureFrame: window.captureFrame,
+    switchEngine: window.switchEngine
+};
 

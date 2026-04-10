@@ -33,19 +33,22 @@ export class PaddleOCR {
 
             // Load detection model
             this.updateStatus('PaddleOCR: loading detection model…');
-            const detBuffer = await fetchWithProgress(
+            let detBuffer = await fetchWithProgress(
                 modelBase + this.manifest.det.path,
                 (p) => this.updateStatus(`PaddleOCR: Loading ${(p * 50).toFixed(0)}%`)
             );
             this.detSession = await ort.InferenceSession.create(detBuffer);
+            detBuffer = null; // Memory Guard: Release buffer immediately after session creation
+            await new Promise(resolve => setTimeout(resolve, 50)); // Memory Guard: Yield to allow GC breathing room
 
             // Load recognition model
             this.updateStatus('PaddleOCR: loading recognition model…');
-            const recBuffer = await fetchWithProgress(
+            let recBuffer = await fetchWithProgress(
                 modelBase + this.manifest.rec.path,
                 (p) => this.updateStatus(`PaddleOCR: Loading ${(50 + p * 50).toFixed(0)}%`)
             );
             this.recSession = await ort.InferenceSession.create(recBuffer);
+            recBuffer = null; // Memory Guard: Release buffer
 
             // Load dictionary
             this.updateStatus('PaddleOCR: loading dictionary…');

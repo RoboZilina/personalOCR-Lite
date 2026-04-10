@@ -5,8 +5,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>VN OCR — Master Dashboard</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin="anonymous">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet" crossorigin="anonymous">
     <link rel="stylesheet" href="styles.css">
     <link rel="manifest" href="manifest.json">
     <meta http-equiv="Content-Security-Policy"
@@ -104,8 +104,7 @@
                     <div class="tray-actions">
                         <div class="tray-buttons-row">
                             <button id="refresh-ocr-btn" class="btn action-btn" disabled>🔄 RE-CAPTURE</button>
-                            <button id="auto-capture-btn" class="btn auto-btn"
-                                onclick="document.getElementById('auto-capture-toggle').click();">
+                            <button id="auto-capture-btn" class="btn auto-btn">
                                 <span class="auto-btn-text"></span>
                             </button>
                         </div>
@@ -280,8 +279,7 @@
 
     <!-- Scripts at the end of body -->
     <script src="./js/onnx/ort.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"
-        integrity="sha384-GJqSu7vueQ9qN0E9yLPb3Wtpd7OrgK8KmYzC8T1IysG1bcvxvIO4qtYR/D3A991F"
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.0/dist/tesseract.min.js"
         crossorigin="anonymous"></script>
     <script type="module" src="app.js"></script>
 </body>
