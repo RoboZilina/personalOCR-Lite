@@ -1606,7 +1606,7 @@ globalInitialize();
 
 /** Public API Namespace (Auditability Phase) */
 window.VNOCR = {
-    version: '1.3.2-gold',
+    version: '1.3.3-gold',
     state: state,
     isReady: isEngineReady,
     drawSelectionRect: window.drawSelectionRect,
