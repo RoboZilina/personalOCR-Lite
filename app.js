@@ -678,8 +678,8 @@ async function captureFrame(rect) {
                 if (i === 0) updateDebugThumb(rawCropCanvas);
 
                 const result = await window.paddleProvider.recognize(clean);
-                if (result && result.text) {
-                    finalText += result.text + '\n';
+                if (result && typeof result === 'string' && result.trim()) {
+                    finalText += result.trim() + '\n';
                 }
             }
 
@@ -1303,7 +1303,9 @@ async function switchEngine(newMode, force = false) {
     }
 
     if (previousMode === 'paddle' && window.paddleProvider) {
-        await window.paddleProvider.dispose();
+        if (window.paddleProvider.isLoaded) {
+            await window.paddleProvider.dispose();
+        }
         window.paddleProvider = null;
     }
 
