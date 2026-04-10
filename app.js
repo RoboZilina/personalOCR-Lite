@@ -37,6 +37,7 @@ import {
     runPaddleOCR
 } from './js/paddle/paddle_core.js';
 
+import { TesseractEngine } from './js/tesseract/tesseract_engine.js';
 import { PaddleOCR } from './js/paddle/paddle_engine.js';
 
 // Central State Mirror (Auditability Phase)
@@ -57,6 +58,46 @@ function isEngineReady(engine) {
         return !!(window.paddleProvider && window.paddleProvider.isLoaded);
     }
     return false;
+}
+
+// ==========================================
+// NEW: Modular Engine Registry (Roadmap Phase)
+// ==========================================
+
+const engines = {
+    tesseract: new TesseractEngine(),
+    paddle: new PaddleOCR(
+        './models/paddle/manifest.json',
+        './js/onnx/',
+        (msg) => setOCRStatus('loading', msg) // Using a wrapper to match existing signature
+    ),
+    // transformers: new TransformersEngine() // placeholder
+};
+
+/** Global reference to the currently active modular engine */
+let currentEngine = engines.tesseract;
+
+/**
+ * Modular engine switcher to replace legacy logic eventually.
+ * @param {string} id - The engine ID from the registry.
+ */
+async function switchEngineModular(id) {
+    const next = engines[id];
+    if (!next || next === currentEngine) return;
+
+    try {
+        await currentEngine.dispose();
+    } catch (err) {
+        console.error('Engine dispose error:', err);
+    }
+
+    try {
+        await next.load();
+    } catch (err) {
+        console.error('Engine load error:', err);
+    }
+
+    currentEngine = next;
 }
 
 // DOM Elements
@@ -242,6 +283,45 @@ function updatePaddlePanelVisibility() {
     const eSelector = document.getElementById('model-selector');
     if (!eSelector) return;
     // Note: Panel is now part of the dropdown itself, nothing to toggle display on
+}
+
+/**
+ * Unified preprocessing helper to prepare canvases for OCR engines.
+ * @param {string} engineId - 'tesseract' or 'paddle'
+ * @param {HTMLCanvasElement} rawCanvas - The original crop
+ * @param {string} mode - Preprocessing mode (adaptive, multi, etc.)
+ * @param {number} lineCount - Number of lines (for Paddle)
+ * @returns {HTMLCanvasElement[]} Array of one or more preprocessed canvases.
+ */
+function preprocessForEngine(engineId, rawCanvas, mode, lineCount) {
+    if (engineId === 'paddle') {
+        const count = lineCount || 1;
+        let slices = [rawCanvas];
+        if (count > 1) {
+            slices = sliceImageIntoLines(rawCanvas, count);
+        }
+        return slices.map(s => {
+            const t1 = trimEmptyVertical(s);
+            // If we created a NEW slice (count > 1), dispose of original slice canvas 's'
+            if (count > 1) { s.width = 0; s.height = 0; }
+            
+            const t2 = padLeft(t1, 4);
+            t1.width = 0; t1.height = 0; // Dispose intermediate
+            
+            const t3 = boostContrast(t2, 1.08);
+            t2.width = 0; t2.height = 0; // Dispose intermediate
+            
+            return t3;
+        });
+    } else {
+        // Tesseract Logic
+        if (mode === 'multi' || mode === 'last_resort') {
+            // Legacy Tesseract pipelines handle their own preprocessing internally
+            return [rawCanvas];
+        }
+        const processed = applyPreprocessing(rawCanvas, mode);
+        return [processed];
+    }
 }
 
 
@@ -652,78 +732,77 @@ async function captureFrame(rect) {
     }
 
     try {
-        if (engine === 'paddle') {
-            if (!window.paddleProvider) {
-                setOCRStatus('error', 'PaddleOCR not ready');
-                return;
-            }
+        const lineCount = getSetting('paddleLineCount') || 1;
+        const canvases = preprocessForEngine(engine, rawCropCanvas, mode, lineCount);
 
-            const lineCount = getSetting('paddleLineCount') || 1;
-
-            let canvases = [rawCropCanvas];
-            if (lineCount > 1) {
-                canvases = sliceImageIntoLines(rawCropCanvas, lineCount);
-            }
-
-            let finalText = '';
-
-            for (let i = 0; i < canvases.length; i++) {
-                if (canvases.length > 1) console.log(`Paddle Slice ${i + 1}/${canvases.length}`);
-
-                // === FIXED TEXTBOX CROP (DETECTORLESS PIPELINE) ===
-                let clean = trimEmptyVertical(canvases[i]);
-                clean = padLeft(clean, 4);
-                clean = boostContrast(clean, 1.08);
-
-                if (i === 0) updateDebugThumb(rawCropCanvas);
-
-                if (!clean.width || !clean.height) continue;
-                const result = await window.paddleProvider.recognize(clean);
-                if (result && result.text && result.text.trim()) {
-                    finalText += result.text.trim() + '\n';
-                }
-            }
-
-            if (captureGeneration !== myGen) return;
-
-            finalText = finalText.trim();
-
-            // Update UI with the result
-            if (finalText) {
-                addOCRResultToUI(finalText);
-                setOCRStatus('ready', '🟢 OCR Complete');
-
-                // Sync with #latest-text if updateLatestText exists (per Step 4 prompt)
-                if (typeof updateLatestText === 'function') {
-                    updateLatestText(finalText);
-                }
-            } else {
-                setOCRStatus('ready', '⚪ No text detected');
-            }
-        } else {
-            // Tesseract always uses jpn_best now per Section 1 Cleanup
+        // 1. Specialized Dispatcher: Advanced Legacy Tesseract Modes
+        if (engine === 'tesseract' && (mode === 'multi' || mode === 'last_resort')) {
             await ensureModelLoaded('jpn_best');
-
-            if (mode === 'last_resort') {
-                const result = await runLastResortOCR(rawCropCanvas, myGen);
-                if (captureGeneration !== myGen) return;
-                updateDebugThumb(result.canvas);
-                addOCRResultToUI(result.text);
-            } else if (mode === 'multi') {
-                const result = await runMultiPassOCR(rawCropCanvas, myGen);
-                if (captureGeneration !== myGen) return;
-                updateDebugThumb(result.canvas);
-                addOCRResultToUI(result.text);
+            let result;
+            if (mode === 'multi') {
+                result = await runMultiPassOCR(canvases[0], myGen);
             } else {
-                const processed = applyPreprocessing(rawCropCanvas, mode);
-                if (captureGeneration !== myGen) return;
-                updateDebugThumb(processed);
-                setOCRStatus('processing', '🟡 Reading...');
-                const result = await runTesseract(processed);
-                if (captureGeneration !== myGen) return;
-                addOCRResultToUI(result.text);
+                result = await runLastResortOCR(canvases[0], myGen);
+            }
+            if (captureGeneration !== myGen) return;
+            updateDebugThumb(result.canvas);
+            addOCRResultToUI(result.text);
+            setOCRStatus('ready', '🟢 OCR Complete');
+            return;
+        }
+
+        // 2. Initialization & Readiness Check
+        if (engine === 'tesseract') {
+            await ensureModelLoaded('jpn_best');
+            setOCRStatus('processing', '🟡 Reading...');
+        } else if (engine === 'paddle' && !window.paddleProvider) {
+            setOCRStatus('error', 'PaddleOCR not ready');
+            return;
+        }
+
+        // 3. Unified Inference Loop (Polymorphic)
+        let finalText = '';
+        for (let i = 0; i < canvases.length; i++) {
+            if (engine === 'paddle' && canvases.length > 1) {
+                console.log(`Paddle Slice ${i + 1}/${canvases.length}`);
+            }
+
+            // Debug Thumbnail (Existing behavior: first slice only)
+            if (i === 0) {
+                if (engine === 'paddle') updateDebugThumb(rawCropCanvas);
+                else updateDebugThumb(canvases[0]);
+            }
+
+            const clean = canvases[i];
+            if (!clean.width || !clean.height) continue;
+
+            const { text } = await currentEngine.recognize(clean);
+            if (text && text.trim()) {
+                finalText += text.trim() + (engine === 'paddle' ? '\n' : ' ');
             }
         }
+
+        if (captureGeneration !== myGen) return;
+        finalText = finalText.trim();
+
+        // 4. Unified UI Update
+        if (finalText) {
+            addOCRResultToUI(finalText);
+            setOCRStatus('ready', '🟢 OCR Complete');
+            if (typeof updateLatestText === 'function') {
+                updateLatestText(finalText);
+            }
+        } else {
+            setOCRStatus('ready', '⚪ No text detected');
+        }
+
+        // 5. Explicit Memory Cleanup (Step 9 Hardening)
+        canvases.forEach(c => {
+            if (c && c !== rawCropCanvas) {
+                c.width = 0;
+                c.height = 0;
+            }
+        });
     } catch (err) {
         console.error("OCR Error:", err);
         setOCRStatus('error', '🔴 OCR Error');
@@ -1377,6 +1456,7 @@ engineSelector.addEventListener('change', async () => {
 
     // 5. Switch engine using base mode only
     await switchEngine(baseMode);
+    await switchEngineModular(baseMode);
 
     if (selectionRect) window.drawSelectionRect();
 });

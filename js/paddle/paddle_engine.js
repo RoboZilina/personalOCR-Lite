@@ -2,6 +2,8 @@ import { fetchWithProgress, canvasToFloat32Tensor } from './paddle_core.js';
 
 export class PaddleOCR {
     constructor(manifestUrl, wasmBasePath, updateStatus) {
+        this.id = 'paddle';
+        this.label = 'PaddleOCR';
         this.manifestUrl = manifestUrl;
         this.wasmBasePath = wasmBasePath;
         this.updateStatus = updateStatus;
@@ -11,6 +13,11 @@ export class PaddleOCR {
         this.dict = [];
         this.normalize = { mean: [0.5, 0.5, 0.5], std: [0.5, 0.5, 0.5] };
         this.isLoaded = false;
+    }
+
+    /** Interface-compliant initialization */
+    async load() {
+        return await this.loadModels();
     }
 
     async loadModels() {
