@@ -13,6 +13,7 @@ export class PaddleOCR {
         this.dict = [];
         this.normalize = { mean: [0.5, 0.5, 0.5], std: [0.5, 0.5, 0.5] };
         this.isLoaded = false;
+        this.initPromise = this.load();
     }
 
     /** Interface-compliant initialization */
@@ -191,7 +192,7 @@ export class PaddleOCR {
     }
 
     async recognize(cropCanvas) {
-        if (!this.recSession) return '';
+        if (!this.recSession) return { text: '' };
 
         try {
 
@@ -199,7 +200,7 @@ export class PaddleOCR {
             const [h, w] = inputSize;
 
             const tensorData = canvasToFloat32Tensor(cropCanvas, inputSize, this.normalize);
-            if (!tensorData) return '';
+            if (!tensorData) return { text: '' };
             
             const inputTensor = new ort.Tensor('float32', tensorData, [1, 3, h, w]);
 
@@ -229,7 +230,7 @@ export class PaddleOCR {
             return text;
         } catch (err) {
             console.error("PaddleOCR: Recognition Error:", err);
-            return '';
+            return { text: '' };
         }
     }
 

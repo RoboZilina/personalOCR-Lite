@@ -61,44 +61,6 @@ function isEngineReady(engine) {
 }
 
 // ==========================================
-// NEW: Modular Engine Registry (Roadmap Phase)
-// ==========================================
-
-const engines = {
-    tesseract: new TesseractEngine(),
-    paddle: new PaddleOCR(
-        './models/paddle/manifest.json',
-        './js/onnx/',
-        (msg) => setOCRStatus('loading', msg) // Using a wrapper to match existing signature
-    ),
-    // transformers: new TransformersEngine() // placeholder
-};
-
-/** Global reference to the currently active modular engine */
-let currentEngine = engines.tesseract;
-
-/**
- * Modular engine switcher to replace legacy logic eventually.
- * @param {string} id - The engine ID from the registry.
- */
-async function switchEngineModular(id) {
-    const next = engines[id];
-    if (!next || next === currentEngine) return;
-
-    try {
-        await currentEngine.dispose();
-    } catch (err) {
-        console.error('Engine dispose error:', err);
-    }
-
-    try {
-        await next.load();
-    } catch (err) {
-        console.error('Engine load error:', err);
-    }
-
-    currentEngine = next;
-}
 
 // DOM Elements
 const selectWindowBtn = document.getElementById('select-window-btn');
@@ -121,6 +83,88 @@ const upscaleVal = document.getElementById('upscale-val');
 
 // Phase 2: Lazy-load state initialization
 modeSelector.disabled = (engineSelector.value !== 'tesseract');
+
+// ==========================================
+// NEW: Modular Engine Registry (Roadmap Phase)
+// ==========================================
+
+const engines = {
+    tesseract: () => new TesseractEngine(),
+    paddle: () => new PaddleOCR(
+        './models/paddle/manifest.json',
+        './js/onnx/',
+        (msg) => setOCRStatus('loading', msg) // Using a wrapper to match existing signature
+    ),
+    // transformers: () => new TransformersEngine() // placeholder
+};
+
+/** Global reference to the currently active modular engine */
+let currentEngine = null;
+let currentEngineId = null;      // normalized ID: "tesseract", "paddle"
+let engineReadyPromise = null;
+
+/**
+ * Modular engine switcher to replace legacy logic eventually.
+ * @param {string} id - The engine ID from the registry.
+ */
+async function switchEngineModular(id) {
+    // 1) Normalize UI IDs like "paddle_2" → "paddle"
+    const normalizedId = id.replace(/_.+$/, "");
+    currentEngineId = normalizedId;
+
+    console.debug("[ENGINE-DEBUG] switchEngineModular() requested:", id, "normalized:", normalizedId);
+
+    // 2) Lock UI during transition
+    if (engineSelector) engineSelector.disabled = true;
+    if (modeSelector) modeSelector.disabled = true;
+
+    // 3) Dispose previous engine if present
+    if (currentEngine && typeof currentEngine.dispose === "function") {
+        console.debug("[ENGINE-DEBUG] disposing previous engine:", currentEngine.id);
+        try {
+            await currentEngine.dispose();
+        } catch (err) {
+            console.error('Engine dispose error:', err);
+        }
+    }
+
+    // 4) Instantiate new engine via factory
+    const factory = engines[normalizedId];
+    if (!factory) {
+        console.error("[ENGINE-ERROR] No engine factory for:", normalizedId);
+        if (engineSelector) engineSelector.disabled = false;
+        if (modeSelector) modeSelector.disabled = false;
+        return;
+    }
+
+    const newEngine = factory();
+    console.debug("[ENGINE-DEBUG] new engine instance created:", normalizedId);
+
+    try {
+        // 5) Begin loading and store readiness promise
+        engineReadyPromise = newEngine.load();
+
+        // 6) Await readiness
+        await engineReadyPromise;
+
+        // 7) Commit engine
+        currentEngine = newEngine;
+        console.debug("[ENGINE-DEBUG] engine after load:", currentEngine);
+    } catch (err) {
+        console.error('Engine load error:', err);
+        currentEngine = null;
+    }
+
+    // 8) Restore UI state
+    if (engineSelector) {
+        engineSelector.value = id; // preserve UI variant (e.g. "paddle_2")
+        engineSelector.disabled = false;
+    }
+    if (modeSelector) {
+        modeSelector.disabled = false;
+    }
+}
+
 
 // Phase 5: PWA Install Management (Fixed duplication)
 let deferredPrompt = null;
@@ -285,6 +329,36 @@ function updatePaddlePanelVisibility() {
     // Note: Panel is now part of the dropdown itself, nothing to toggle display on
 }
 
+function applyTesseractPreprocessing(cropCanvas, mode) {
+    if (mode === 'multi' || mode === 'last_resort') {
+        // Legacy Tesseract pipelines handle their own preprocessing internally
+        return [cropCanvas];
+    }
+    const processed = applyPreprocessing(cropCanvas, mode);
+    return [processed];
+}
+
+function applyPaddlePreprocessing(cropCanvas, lineCount) {
+    const count = lineCount || 1;
+    let slices = [cropCanvas];
+    if (count > 1) {
+        slices = sliceImageIntoLines(cropCanvas, count);
+    }
+    return slices.map(s => {
+        const t1 = trimEmptyVertical(s);
+        // If we created a NEW slice (count > 1), dispose of original slice canvas 's'
+        if (count > 1) { s.width = 0; s.height = 0; }
+        
+        const t2 = padLeft(t1, 4);
+        t1.width = 0; t1.height = 0; // Dispose intermediate
+        
+        const t3 = boostContrast(t2, 1.08);
+        t2.width = 0; t2.height = 0; // Dispose intermediate
+        
+        return t3;
+    });
+}
+
 /**
  * Unified preprocessing helper to prepare canvases for OCR engines.
  * @param {string} engineId - 'tesseract' or 'paddle'
@@ -293,35 +367,26 @@ function updatePaddlePanelVisibility() {
  * @param {number} lineCount - Number of lines (for Paddle)
  * @returns {HTMLCanvasElement[]} Array of one or more preprocessed canvases.
  */
-function preprocessForEngine(engineId, rawCanvas, mode, lineCount) {
-    if (engineId === 'paddle') {
-        const count = lineCount || 1;
-        let slices = [rawCanvas];
-        if (count > 1) {
-            slices = sliceImageIntoLines(rawCanvas, count);
-        }
-        return slices.map(s => {
-            const t1 = trimEmptyVertical(s);
-            // If we created a NEW slice (count > 1), dispose of original slice canvas 's'
-            if (count > 1) { s.width = 0; s.height = 0; }
-            
-            const t2 = padLeft(t1, 4);
-            t1.width = 0; t1.height = 0; // Dispose intermediate
-            
-            const t3 = boostContrast(t2, 1.08);
-            t2.width = 0; t2.height = 0; // Dispose intermediate
-            
-            return t3;
-        });
-    } else {
-        // Tesseract Logic
-        if (mode === 'multi' || mode === 'last_resort') {
-            // Legacy Tesseract pipelines handle their own preprocessing internally
-            return [rawCanvas];
-        }
-        const processed = applyPreprocessing(rawCanvas, mode);
-        return [processed];
+async function preprocessForEngine(engineId, rawCanvas, mode, lineCount) {
+    const normalized = engineId.replace(/_.+$/, "");
+
+    if (!currentEngine || !currentEngine.isLoaded) {
+        console.debug("[ENGINE-DEBUG] preprocess waiting on engineReadyPromise");
+        if (engineReadyPromise) await engineReadyPromise;
     }
+
+    console.debug("[ENGINE-DEBUG] preprocessForEngine() engine arg:", engineId);
+
+    if (normalized === "tesseract") {
+        return applyTesseractPreprocessing(rawCanvas, mode);
+    }
+
+    if (normalized === "paddle") {
+        return applyPaddlePreprocessing(rawCanvas, lineCount);
+    }
+
+    // Default fallback:
+    return [rawCanvas];
 }
 
 
@@ -335,10 +400,9 @@ if (modeSelector) {
 
 
 if (panicBtn) {
-    panicBtn.onclick = () => {
-        engineSelector.value = 'tesseract';
-        engineSelector.dispatchEvent(new Event('change'));
-        modeSelector.value = 'multi';
+    panicBtn.onclick = async () => {
+        await switchEngineModular('tesseract');
+        modeSelector.value = 'last_resort';
         modeSelector.disabled = false;
         panicBtn.classList.add('active');
         setTimeout(() => panicBtn.classList.remove('active'), 1000);
@@ -545,7 +609,10 @@ if (autoToggle) {
         if (autoToggle.checked) {
             if (label) label.textContent = "auto re-capture ON";
             if (autoCaptureTimer) clearInterval(autoCaptureTimer);
-            autoCaptureTimer = setInterval(checkAutoCapture, 500);
+            (async () => {
+                await switchEngineModular(currentEngineId || engineSelector?.value || "tesseract");
+                autoCaptureTimer = setInterval(checkAutoCapture, 500);
+            })();
         } else {
             if (label) label.textContent = "auto re-capture OFF";
             clearInterval(autoCaptureTimer);
@@ -723,7 +790,15 @@ async function captureFrame(rect) {
     // 6. Logging for verification
     if (getSetting('debug')) console.log(`[VN-OCR] Crop Source: sx=${cx_}, sy=${cy_}, sw=${cw_}, sh=${ch_}`);
 
+    if (!currentEngine) {
+        console.warn("[ENGINE-DEBUG] captureFrame: currentEngine is null, waiting on engineReadyPromise");
+        if (engineReadyPromise) {
+            await engineReadyPromise;
+        }
+    }
+
     let engine = engineSelector.value;
+    console.log("[ENGINE-DEBUG] UI selected engine:", engineSelector.value);
     const mode = modeSelector.value;
 
     // Normalize paddle variants
@@ -733,7 +808,9 @@ async function captureFrame(rect) {
 
     try {
         const lineCount = getSetting('paddleLineCount') || 1;
-        const canvases = preprocessForEngine(engine, rawCropCanvas, mode, lineCount);
+        console.debug("[ENGINE-DEBUG] captureFrame: preprocessing for engine:", currentEngineId);
+        const canvases = await preprocessForEngine(currentEngineId, rawCropCanvas, mode, lineCount);
+        console.log("[SLICE-DEBUG] total slices:", canvases.length);
 
         // 1. Specialized Dispatcher: Advanced Legacy Tesseract Modes
         if (engine === 'tesseract' && (mode === 'multi' || mode === 'last_resort')) {
@@ -762,6 +839,10 @@ async function captureFrame(rect) {
 
         // 3. Unified Inference Loop (Polymorphic)
         let finalText = '';
+        console.log("[ENGINE-DEBUG] currentEngine object:", currentEngine);
+        console.log("[ENGINE-DEBUG] currentEngine ID:", currentEngine.id);
+        console.log("[ENGINE-DEBUG] currentEngine.isReady (before recognize):", currentEngine?.isReady);
+        console.log("[ENGINE-DEBUG] currentEngine.isLoaded (before recognize):", currentEngine?.isLoaded);
         for (let i = 0; i < canvases.length; i++) {
             if (engine === 'paddle' && canvases.length > 1) {
                 console.log(`Paddle Slice ${i + 1}/${canvases.length}`);
@@ -776,6 +857,7 @@ async function captureFrame(rect) {
             const clean = canvases[i];
             if (!clean.width || !clean.height) continue;
 
+            console.log("[SLICE-DEBUG] slice:", clean.width, "x", clean.height);
             const { text } = await currentEngine.recognize(clean);
             if (text && text.trim()) {
                 finalText += text.trim() + (engine === 'paddle' ? '\n' : ' ');
@@ -1368,49 +1450,7 @@ function initSettings() {
 }
 
 // 6.2 PaddleOCR Toggle and Warning Logic
-// Normalize current engine state from settings
-let previousMode = (getSetting('ocrMode') === 'paddle') ? 'paddle' : 'tesseract';
-
-async function switchEngine(newMode, force = false) {
-    // Re-entry guard: don't reload if already active (unless forced)
-    const isCurrentLoaded = (newMode === 'tesseract' && ocrWorker) || (newMode === 'paddle' && window.paddleProvider?.isLoaded);
-    if (!force && newMode === previousMode && isCurrentLoaded) return;
-
-    // Teardown previous engine
-    if (previousMode === 'tesseract' && ocrWorker) {
-        ocrWorker.terminate();
-        ocrWorker = null;
-    }
-
-    if (previousMode === 'paddle' && window.paddleProvider) {
-        if (window.paddleProvider.isLoaded) {
-            await window.paddleProvider.dispose();
-        }
-        window.paddleProvider = null;
-    }
-
-    // Update settings + state
-    previousMode = newMode;
-    setSetting('ocrMode', newMode);
-
-    // Sync preprocessing UI
-    if (typeof modeSelector !== 'undefined' && modeSelector) {
-        modeSelector.disabled = (newMode === 'paddle');
-
-        // Ensure preprocessing mode is always valid when using Tesseract
-        if (newMode === 'tesseract') {
-            modeSelector.value = 'default_mini';
-            setSetting('ocrMode', 'default_mini');
-        }
-    }
-
-    // Load new engine
-    if (newMode === 'tesseract') {
-        await initOCR();
-    } else if (newMode === 'paddle') {
-        await loadPaddleOCR();
-    }
-}
+// Unified modular switcher handles all transitions now.
 
 engineSelector.addEventListener('change', async () => {
     const rawValue = engineSelector.value;
@@ -1455,8 +1495,7 @@ engineSelector.addEventListener('change', async () => {
     console.log('[State Mirror] Engine update:', state.engine);
 
     // 5. Switch engine using base mode only
-    await switchEngine(baseMode);
-    await switchEngineModular(baseMode);
+    await switchEngineModular(rawValue);
 
     if (selectionRect) window.drawSelectionRect();
 });
@@ -1476,7 +1515,10 @@ document.getElementById('paddle-continue')?.addEventListener('click', async () =
     state.engine = engineSelector.value;
     state.paddleLineCount = count;
     
-    await switchEngine('paddle');
+    state.engine = engineSelector.value;
+    state.paddleLineCount = count;
+    
+    await switchEngineModular(`paddle_${count}`);
 
     document.getElementById('paddle-modal').classList.remove('active');
     if (selectionRect) window.drawSelectionRect();
@@ -1505,7 +1547,7 @@ document.getElementById('banner-switch-default')?.addEventListener('click', asyn
     state.mode = 'default_mini';
 
     // 3. Trigger the actual engine switch to unload Paddle and load Tesseract
-    await switchEngine('tesseract');
+    await switchEngineModular('tesseract');
 
     // 4. Close banner and refresh visual guides
     document.getElementById('startup-banner')?.classList.remove('active');
@@ -1543,7 +1585,7 @@ function globalInitialize() {
     }
 
     // Startup Engine Load: Load the saved engine exactly once
-    switchEngine(isPaddle ? 'paddle' : 'tesseract');
+    await switchEngineModular(isPaddle ? (engineSelector?.value || 'paddle_3') : 'tesseract');
 
 
 
