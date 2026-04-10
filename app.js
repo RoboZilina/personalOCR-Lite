@@ -1,12 +1,12 @@
-import { 
-    loadSettings, 
-    getSetting, 
-    setSetting, 
-    applySettingsToUI, 
-    applyUIToSettings 
+import {
+    loadSettings,
+    getSetting,
+    setSetting,
+    applySettingsToUI,
+    applyUIToSettings
 } from './settings.js';
 
-import { 
+import {
     runPaddleOCR
 } from './js/paddle/paddle_core.js';
 
@@ -130,7 +130,7 @@ async function ensureModelLoaded(requestedAlias) {
         currentModelAlias = requestedAlias;
         isOcrReady = true;
         // Tesseract-specific: optimize for VN text blocks
-        await ocrWorker.setParameters({ 
+        await ocrWorker.setParameters({
             tessedit_pageseg_mode: '6'
         });
         setOCRStatus('ready', '🟢 OCR Ready');
@@ -147,6 +147,53 @@ async function ensureModelLoaded(requestedAlias) {
 async function initOCR() {
     // Since #model-selector now handles engines, we default Tesseract to 'jpn_best'
     await ensureModelLoaded('jpn_best');
+}
+
+function sliceImageIntoLines(canvas, lineCount) {
+    const slices = [];
+    const { width, height } = canvas;
+    const sliceHeight = height / lineCount;
+
+    for (let i = 0; i < lineCount; i++) {
+        const sliceCanvas = document.createElement('canvas');
+        sliceCanvas.width = width;
+        sliceCanvas.height = sliceHeight;
+
+        const ctx = sliceCanvas.getContext('2d');
+        ctx.drawImage(
+            canvas,
+            0, i * sliceHeight, width, sliceHeight,
+            0, 0, width, sliceHeight
+        );
+
+        slices.push(sliceCanvas);
+    }
+
+    return slices;
+}
+
+function drawSlicingGuides(ctx, x, y, width, height, lineCount) {
+    if (lineCount <= 1) return;
+
+    const sliceHeight = height / lineCount;
+
+    ctx.strokeStyle = 'rgba(255, 255, 0, 0.6)';
+    ctx.lineWidth = 1.5;
+
+    for (let i = 1; i < lineCount; i++) {
+        const lineY = y + i * sliceHeight;
+        ctx.beginPath();
+        ctx.moveTo(x, lineY);
+        ctx.lineTo(x + width, lineY);
+        ctx.stroke();
+    }
+}
+
+
+function updatePaddlePanelVisibility() {
+    const eSelector = document.getElementById('model-selector');
+    if (!eSelector) return;
+    // Note: Panel is now part of the dropdown itself, nothing to toggle display on
 }
 
 
@@ -208,7 +255,7 @@ if (historyContent) {
         navigator.clipboard.writeText(sel).then(() => {
             historyContent.style.outline = '2px solid var(--accent)';
             setTimeout(() => { historyContent.style.outline = ''; }, 300);
-        }).catch(() => {});
+        }).catch(() => { });
     });
 }
 
@@ -220,7 +267,7 @@ if (latestText) {
         navigator.clipboard.writeText(sel).then(() => {
             latestText.style.outline = '2px solid var(--accent)';
             setTimeout(() => { latestText.style.outline = ''; }, 300);
-        }).catch(() => {});
+        }).catch(() => { });
     });
 }
 
@@ -270,6 +317,7 @@ if (selectionOverlay) {
         if (selectionRect) drawSelectionRect();
     };
     new ResizeObserver(resizeCanvas).observe(selectionOverlay);
+
     const getMousePos = (e) => {
         const rect = selectionOverlay.getBoundingClientRect();
         return { x: e.clientX - rect.left, y: e.clientY - rect.top };
@@ -306,7 +354,7 @@ if (selectionOverlay) {
         }
         drawSelectionRect();
     });
-    function drawSelectionRect() {
+    window.drawSelectionRect = function () {
         const canvasW = selectionOverlay.width, canvasH = selectionOverlay.height;
         ctx.clearRect(0, 0, canvasW, canvasH);
         if (!isSelecting && !selectionRect) return;
@@ -319,8 +367,12 @@ if (selectionOverlay) {
         ctx.fillStyle = '#10b981'; const s = 10;
         ctx.fillRect(x, y, s, 3); ctx.fillRect(x, y, 3, s);
         ctx.fillRect(x + w - s, y, s, 3); ctx.fillRect(x + w - 3, y, 3, s);
-        ctx.fillRect(x, y + h - 3, s, 3); ctx.fillRect(x, y + h - s, 3, s);
-        ctx.fillRect(x + w - s, y + h - 3, s, 3); ctx.fillRect(x + w - 3, y + h - s, 3, s);
+        // draw slicing guides for PaddleOCR
+        const rawValue = engineSelector.value;
+        if (rawValue.startsWith('paddle')) {
+            const lineCount = getSetting('paddleLineCount') || 1;
+            drawSlicingGuides(ctx, x, y, w, h, lineCount);
+        }
     }
 }
 
@@ -347,9 +399,9 @@ function checkAutoCapture() {
         if (diffPixels > 10) {
             clearTimeout(stabilityTimer);
             autoToggle.parentElement.classList.add('active');
-            stabilityTimer = setTimeout(() => { 
-                autoToggle.parentElement.classList.remove('active'); 
-                captureFrame(selectionRect); 
+            stabilityTimer = setTimeout(() => {
+                autoToggle.parentElement.classList.remove('active');
+                captureFrame(selectionRect);
             }, 800);
         }
     }
@@ -471,9 +523,9 @@ function boostContrast(canvas, factor = 1.08) {
     const d = img.data;
 
     for (let i = 0; i < d.length; i += 4) {
-        d[i]   = Math.min(255, d[i]   * factor);
-        d[i+1] = Math.min(255, d[i+1] * factor);
-        d[i+2] = Math.min(255, d[i+2] * factor);
+        d[i] = Math.min(255, d[i] * factor);
+        d[i + 1] = Math.min(255, d[i + 1] * factor);
+        d[i + 2] = Math.min(255, d[i + 2] * factor);
     }
 
     const out = document.createElement("canvas");
@@ -501,8 +553,13 @@ async function captureFrame(rect) {
     // 6. Logging for verification
     if (getSetting('debug')) console.log(`[VN-OCR] Crop Source: sx=${cx_}, sy=${cy_}, sw=${cw_}, sh=${ch_}`);
 
-    const engine = engineSelector.value;
+    let engine = engineSelector.value;
     const mode = modeSelector.value;
+
+    // Normalize paddle variants
+    if (engine.startsWith('paddle_')) {
+        engine = 'paddle';
+    }
 
     try {
         if (engine === 'paddle') {
@@ -510,20 +567,45 @@ async function captureFrame(rect) {
                 setOCRStatus('error', 'PaddleOCR not ready');
                 return;
             }
-            // === FIXED TEXTBOX CROP (DETECTORLESS PIPELINE) ===
-            let clean = trimEmptyVertical(rawCropCanvas);
-            clean = padLeft(clean, 4);
-            clean = boostContrast(clean, 1.08);
 
-            updateDebugThumb(clean);
+            const lineCount = getSetting('paddleLineCount') || 1;
 
-            const text = await window.paddleProvider.recognize(clean);
+            let canvases = [rawCropCanvas];
+            if (lineCount > 1) {
+                canvases = sliceImageIntoLines(rawCropCanvas, lineCount);
+            }
+
+            let finalText = '';
+
+            for (let i = 0; i < canvases.length; i++) {
+                if (canvases.length > 1) console.log(`Paddle Slice ${i + 1}/${canvases.length}`);
+
+                // === FIXED TEXTBOX CROP (DETECTORLESS PIPELINE) ===
+                let clean = trimEmptyVertical(canvases[i]);
+                clean = padLeft(clean, 4);
+                clean = boostContrast(clean, 1.08);
+
+                if (i === 0) updateDebugThumb(rawCropCanvas);
+
+                const result = await window.paddleProvider.recognize(clean);
+                if (result && result.text) {
+                    finalText += result.text + '\n';
+                }
+            }
+
             if (captureGeneration !== myGen) return;
 
+            finalText = finalText.trim();
+
             // Update UI with the result
-            if (text && text.trim()) {
-                addOCRResultToUI(text);
+            if (finalText) {
+                addOCRResultToUI(finalText);
                 setOCRStatus('ready', '🟢 OCR Complete');
+
+                // Sync with #latest-text if updateLatestText exists (per Step 4 prompt)
+                if (typeof updateLatestText === 'function') {
+                    updateLatestText(finalText);
+                }
             } else {
                 setOCRStatus('ready', '⚪ No text detected');
             }
@@ -551,15 +633,20 @@ async function captureFrame(rect) {
                 addOCRResultToUI(result.text);
             }
         }
-    } catch (err) { 
+    } catch (err) {
         console.error("OCR Error:", err);
-        setOCRStatus('error', '🔴 OCR Error'); 
+        setOCRStatus('error', '🔴 OCR Error');
     }
-    finally { 
+    finally {
         // Small cooldown to prevent rapid-fire re-triggering
         setTimeout(() => {
-            isProcessing = false; 
-            if (isOcrReady) setOCRStatus('ready', '🟢 OCR Ready'); 
+            isProcessing = false;
+            const engine = engineSelector.value;
+            if (engine.startsWith('paddle') && window.paddleProvider?.isLoaded) {
+                setOCRStatus('ready', '🟢 PaddleOCR Ready');
+            } else if (isOcrReady && engine === 'tesseract') {
+                setOCRStatus('ready', '🟢 OCR Ready');
+            }
         }, 100);
     }
 }
@@ -843,14 +930,14 @@ function medianFilter(canvas) {
     const v = new Uint8Array(9);
     function swap(a, b) { if (v[a] > v[b]) { const t = v[a]; v[a] = v[b]; v[b] = t; } }
     function median9() {
-        swap(0,1); swap(3,4); swap(6,7);
-        swap(1,2); swap(4,5); swap(7,8);
-        swap(0,1); swap(3,4); swap(6,7);
-        swap(0,3); swap(3,6); swap(1,4);
-        swap(4,7); swap(2,5); swap(5,8);
-        swap(1,3); swap(5,7); swap(2,6);
-        swap(4,6); swap(2,4); swap(2,3);
-        swap(5,6); swap(4,5);
+        swap(0, 1); swap(3, 4); swap(6, 7);
+        swap(1, 2); swap(4, 5); swap(7, 8);
+        swap(0, 1); swap(3, 4); swap(6, 7);
+        swap(0, 3); swap(3, 6); swap(1, 4);
+        swap(4, 7); swap(2, 5); swap(5, 8);
+        swap(1, 3); swap(5, 7); swap(2, 6);
+        swap(4, 6); swap(2, 4); swap(2, 3);
+        swap(5, 6); swap(4, 5);
         return v[4];
     }
     for (let y = 1; y < h - 1; y++) {
@@ -1084,12 +1171,24 @@ function initSettings() {
     loadSettings();
     applySettingsToUI();
 
-    // Startup Banner Logic
-    const mode = getSetting('ocrMode');
+    const mode = getSetting('ocrMode') || 'tesseract';
+    const paddleLines = getSetting('paddleLineCount') || 3;
     const showWarning = getSetting('showHeavyWarning');
+
+    // Startup Banner Logic
     if (mode === 'paddle' && showWarning) {
         document.getElementById('startup-banner')?.classList.add('active');
     }
+
+    // Sync Engine Selector UI
+    if (mode === 'tesseract') {
+        engineSelector.value = 'tesseract';
+    } else {
+        engineSelector.value = `paddle_${paddleLines}`;
+    }
+
+    // Update guides if present (handled via drawSelectionRect indirectly)
+    if (selectionRect) drawSelectionRect();
 }
 
 // 6.2 PaddleOCR Toggle and Warning Logic
@@ -1119,7 +1218,7 @@ async function switchEngine(newMode, force = false) {
     // Sync preprocessing UI
     if (typeof modeSelector !== 'undefined' && modeSelector) {
         modeSelector.disabled = (newMode === 'paddle');
-        
+
         // Ensure preprocessing mode is always valid when using Tesseract
         if (newMode === 'tesseract') {
             modeSelector.value = 'default_mini';
@@ -1136,17 +1235,46 @@ async function switchEngine(newMode, force = false) {
 }
 
 engineSelector.addEventListener('change', async () => {
-    const newMode = engineSelector.value;
+    const rawValue = engineSelector.value;
 
-    // Intercept PaddleOCR if warnings are enabled
-    if (newMode === 'paddle' && getSetting('showHeavyWarning')) {
-        engineSelector.value = previousMode;
+    let baseMode = rawValue;
+    let lineCount = null;
+
+    // 1. Detect Paddle variants and parse line count
+    if (rawValue.startsWith('paddle_')) {
+        baseMode = 'paddle';
+        const parts = rawValue.split('_');
+        const parsed = parseInt(parts[1], 10);
+        if (!Number.isNaN(parsed)) {
+            lineCount = parsed;
+        }
+    }
+
+    // 2. Persist line count immediately for Paddle variants
+    if (baseMode === 'paddle' && lineCount !== null) {
+        setSetting('paddleLineCount', lineCount);
+    }
+
+    // 3. Intercept PaddleOCR if warnings are enabled
+    if (baseMode === 'paddle' && getSetting('showHeavyWarning')) {
+        const currentMode = getSetting('ocrMode');
+        const currentLines = getSetting('paddleLineCount');
+        engineSelector.value = (currentMode === 'tesseract')
+            ? 'tesseract'
+            : `paddle_${currentLines}`;
+
         document.getElementById('paddle-modal').classList.add('active');
+        if (selectionRect) window.drawSelectionRect();
         return;
     }
 
-    // Normal engine switch
-    await switchEngine(newMode);
+    // 4. Persist engine mode
+    setSetting('ocrMode', baseMode);
+
+    // 5. Switch engine using base mode only
+    await switchEngine(baseMode);
+
+    if (selectionRect) window.drawSelectionRect();
 });
 
 
@@ -1157,22 +1285,38 @@ document.getElementById('paddle-continue')?.addEventListener('click', async () =
         setSetting('showHeavyWarning', false);
     }
 
-    engineSelector.value = 'paddle';
+    const count = getSetting('paddleLineCount') || 3;
+    engineSelector.value = `paddle_${count}`;
     await switchEngine('paddle');
 
     document.getElementById('paddle-modal').classList.remove('active');
+    if (selectionRect) window.drawSelectionRect();
 });
 
 document.getElementById('paddle-cancel')?.addEventListener('click', () => {
     engineSelector.value = previousMode;
     document.getElementById('paddle-modal').classList.remove('active');
+    if (selectionRect) window.drawSelectionRect();
 });
 
 // 6.4 Banner Event Listeners
-document.getElementById('banner-switch-default')?.addEventListener('click', () => {
+document.getElementById('banner-switch-default')?.addEventListener('click', async () => {
+    // 1. Set the Tesseract sub-mode in settings
     setSetting('ocrMode', 'default_mini');
-    applySettingsToUI();
-    document.getElementById('startup-banner').classList.remove('active');
+
+    // 2. Synchronize the UI selectors immediately
+    if (engineSelector) engineSelector.value = 'tesseract';
+    if (modeSelector) {
+        modeSelector.disabled = false;
+        modeSelector.value = 'default_mini';
+    }
+
+    // 3. Trigger the actual engine switch to unload Paddle and load Tesseract
+    await switchEngine('tesseract');
+
+    // 4. Close banner and refresh visual guides
+    document.getElementById('startup-banner')?.classList.remove('active');
+    if (selectionRect) window.drawSelectionRect();
 });
 
 document.getElementById('banner-nocall-checkbox')?.addEventListener('change', (e) => {
@@ -1193,7 +1337,8 @@ function globalInitialize() {
     const isPaddle = (savedMode === 'paddle');
 
     if (isPaddle) {
-        if (engineSelector) engineSelector.value = 'paddle';
+        const count = getSetting('paddleLineCount') || 3;
+        if (engineSelector) engineSelector.value = `paddle_${count}`;
         if (modeSelector) modeSelector.disabled = true;
     } else {
         if (engineSelector) engineSelector.value = 'tesseract';

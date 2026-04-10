@@ -12,7 +12,8 @@ const defaultSettings = {
     showHeavyWarning: true,
     theme: "dark",
     historyVisible: true,
-    debug: false
+    debug: false,
+    paddleLineCount: 3
 };
 
 let currentSettings = { ...defaultSettings };

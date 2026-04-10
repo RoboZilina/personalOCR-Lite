@@ -46,7 +46,12 @@
                     <button id="panic-btn" class="panic-btn" title="Panic Mode: Max Enhance!">🚨</button>
                     <select id="model-selector" class="ui-select">
                         <option value="tesseract">Tesseract</option>
-                        <option value="paddle">PaddleOCR</option>
+                        <optgroup label="PaddleOCR (Multi-Line)">
+                            <option value="paddle_1">PaddleOCR – 1 line</option>
+                            <option value="paddle_2">PaddleOCR – 2 lines</option>
+                            <option value="paddle_3">PaddleOCR – 3 lines</option>
+                            <option value="paddle_4">PaddleOCR – 4 lines</option>
+                        </optgroup>
                     </select>
                     <select id="tts-voice-select" class="ui-select" title="TTS Voice" style="max-width: 150px;">
                         <option value="">🔇 TTS Off</option>
@@ -189,10 +194,10 @@
                     <p style="margin-top:10px;">Choose your <strong>OCR Engine</strong> from the dropdown:</p>
                     <ul>
                         <li><strong>Tesseract:</strong> Classic OCR engine. Pairs with all Image Processing Modes (Default Mini, Adaptive, Multi-Pass, etc.). The <strong>jpn_best</strong> language model is loaded automatically for highest accuracy.</li>
-                        <li><strong>PaddleOCR:</strong> Neural-network recognizer. Runs a detectorless pipeline on your selection — no preprocessing modes needed. Best for clean, high-contrast text. Loads ~20–80 MB of ONNX models on first use.</li>
+                        <li><strong>PaddleOCR:</strong> Neural-network recognizer. Best for high-contrast text. Includes <strong>Multi-Line</strong> variants (1–4 lines) which slice the capture area vertically. When selecting 2 or more lines, <strong>yellow visual guides</strong> will appear to help you align the rows. Loads ~20–80 MB of ONNX models on first use.</li>
                     </ul>
                     <p style="font-size: 12px; opacity: 0.8; border-top: 1px solid var(--border); padding-top: 8px; margin-top: 10px;">
-                        <em>When <strong>PaddleOCR</strong> is selected, the Image Processing Mode dropdown is disabled — PaddleOCR uses its own micro-filter pipeline. Switch back to <strong>Tesseract</strong> to use preprocessing modes again.</em>
+                        <em>When <strong>PaddleOCR</strong> is selected, the Image Processing Mode dropdown is disabled — PaddleOCR uses its own micro-filter pipeline optimized for neutral network recognition. Switch back to <strong>Tesseract</strong> to use preprocessing modes again.</em>
                     </p>
                 </div>
                 <div class="guide-card">

@@ -3,10 +3,13 @@
 Free, browser-only Japanese OCR for Visual Novels. No install, no backend, works anywhere.
 
 ## Features
+- **PaddleOCR (v5) Engine** — High-precision neural-network recognizer via ONNX Runtime
+- **Multi-Line Slicing** — Vertical image slicing for 1–4 lines of horizontal text, optimized for dialogue boxes
+- **Visual Slicing Guides** — Real-time canvas overlays to align text rows during selection
 - **8 image preprocessing modes** with local mean adaptive thresholding, polarity detection, and halo removal
 - **3×3 median denoising** with sorting-network optimization
 - **Adjustable upscale slider** (1×–4× scaling before OCR)
-- **4 OCR language models** (`jpn`, `jpn_best`, `jpn_fast`, `jpn_vert`)
+- **4 Tesseract language models** (`jpn`, `jpn_best`, `jpn_fast`, `jpn_vert`)
 - **Multi-Pass and Last Resort pipelines** that fuse results from multiple preprocessing combos
 - **Auto-capture** with pixel-level change detection and stabilization delay
 - **Text-to-Speech** (Japanese voices via Web Speech API)
@@ -14,7 +17,7 @@ Free, browser-only Japanese OCR for Visual Novels. No install, no backend, works
 - **Copy-on-select** — highlight text in output or history to auto-copy (toggle via menu)
 - **Dark/Light themes** with system preference detection
 - **PWA installable** — runs as a standalone app
-- **Panic button** — one-click switch to Last Resort mode
+- **Panic button** — one-click switch to Tesseract Multi-Pass mode
 
 ## Hosting
 Upload all project files to any web host:
