@@ -106,8 +106,7 @@ const engines = {
             }
         ),
         supportsModes: false
-    },
-    // transformers: { factory: () => new TransformersEngine(), supportsModes: true } // placeholder
+    }
 };
 
 /** Global reference to the currently active modular engine */
