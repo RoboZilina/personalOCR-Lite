@@ -89,19 +89,25 @@ modeSelector.disabled = (engineSelector.value !== 'tesseract');
 // ==========================================
 
 const engines = {
-    tesseract: () => new TesseractEngine(),
-    paddle: () => new PaddleOCR(
-        './models/paddle/manifest.json',
-        './js/onnx/',
-        (msg) => {
-            if (msg && msg.toLowerCase().includes("ready")) {
-                setOCRStatus('ready', '🟢 PADDLE READY');
-            } else {
-                setOCRStatus('loading', msg);
+    tesseract: {
+        factory: () => new TesseractEngine(),
+        supportsModes: true
+    },
+    paddle: {
+        factory: () => new PaddleOCR(
+            './models/paddle/manifest.json',
+            './js/onnx/',
+            (msg) => {
+                if (msg && msg.toLowerCase().includes("ready")) {
+                    setOCRStatus('ready', '🟢 PADDLE READY');
+                } else {
+                    setOCRStatus('loading', msg);
+                }
             }
-        }
-    ),
-    // transformers: () => new TransformersEngine() // placeholder
+        ),
+        supportsModes: false
+    },
+    // transformers: { factory: () => new TransformersEngine(), supportsModes: true } // placeholder
 };
 
 /** Global reference to the currently active modular engine */
@@ -148,15 +154,15 @@ async function switchEngineModular(id) {
     }
 
     // 4) Instantiate new engine via factory
-    const factory = engines[normalizedId];
-    if (!factory) {
+    const registryEntry = engines[normalizedId];
+    if (!registryEntry) {
         console.error("[ENGINE-ERROR] No engine factory for:", normalizedId);
         if (engineSelector) engineSelector.disabled = false;
         if (modeSelector) modeSelector.disabled = false;
         return;
     }
 
-    const newEngine = factory();
+    const newEngine = registryEntry.factory();
     console.debug("[ENGINE-DEBUG] new engine instance created:", normalizedId);
 
     try {
@@ -180,7 +186,8 @@ async function switchEngineModular(id) {
         engineSelector.disabled = false;
     }
     if (modeSelector) {
-        modeSelector.disabled = false;
+        const supportsModes = engines[normalizedId]?.supportsModes ?? true;
+        modeSelector.disabled = !supportsModes;
     }
 }
 
