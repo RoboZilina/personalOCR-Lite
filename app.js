@@ -39,6 +39,7 @@ import {
 
 import { TesseractEngine } from './js/tesseract/tesseract_engine.js';
 import { PaddleOCR } from './js/paddle/paddle_engine.js';
+import { MangaOCREngine } from './js/manga/manga_engine.js';
 
 // Central State Mirror (Auditability Phase)
 const state = {
@@ -105,6 +106,11 @@ const engines = {
                 }
             }
         ),
+        supportsModes: false
+    },
+    manga: {
+        id: "manga",
+        factory: () => new MangaOCREngine(),
         supportsModes: false
     }
 };
@@ -1586,9 +1592,10 @@ async function globalInitialize() {
     
     if (modeSelector) {
         modeSelector.value = savedMode;
-        // Logic for Paddle: ensure mode is disabled if engine is paddle
-        const isPaddle = savedEngine.startsWith('paddle');
-        modeSelector.disabled = isPaddle;
+        // Read supportsModes from registry — single source of truth for all engines
+        const normalizedSaved = savedEngine.replace(/_.+$/, '');
+        const supportsModes = engines[normalizedSaved]?.supportsModes ?? true;
+        modeSelector.disabled = !supportsModes;
     }
 
     // 4. Final Status Affirmation
