@@ -93,7 +93,13 @@ const engines = {
     paddle: () => new PaddleOCR(
         './models/paddle/manifest.json',
         './js/onnx/',
-        (msg) => setOCRStatus('loading', msg) // Using a wrapper to match existing signature
+        (msg) => {
+            if (msg && msg.toLowerCase().includes("ready")) {
+                setOCRStatus('ready', '🟢 PADDLE READY');
+            } else {
+                setOCRStatus('loading', msg);
+            }
+        }
     ),
     // transformers: () => new TransformersEngine() // placeholder
 };
@@ -102,6 +108,19 @@ const engines = {
 let currentEngine = null;
 let currentEngineId = null;      // normalized ID: "tesseract", "paddle"
 let engineReadyPromise = null;
+
+// Expose read-only engine state for UI and diagnostics
+Object.defineProperty(window, "currentEngine", {
+    get() { return currentEngine; }
+});
+
+Object.defineProperty(window, "currentEngineId", {
+    get() { return currentEngineId; }
+});
+
+Object.defineProperty(window, "engineReadyPromise", {
+    get() { return engineReadyPromise; }
+});
 
 /**
  * Modular engine switcher to replace legacy logic eventually.
@@ -229,8 +248,16 @@ if (upscaleSlider) {
 
 function setOCRStatus(state, text) {
     if (!ocrStatus) return;
-    ocrStatus.className = `status-pill ${state}`;
-    ocrStatus.textContent = text;
+
+    // Use internal state bridge to determine readiness (Instruction #2)
+    if (window.currentEngine && window.currentEngine.isLoaded === true) {
+        ocrStatus.className = 'status-pill ready';
+        // If we were just told we are ready, or if we were already ready, keep it green
+        ocrStatus.textContent = (state === 'ready') ? text : `🟢 ${window.currentEngineId.toUpperCase()} READY`;
+    } else {
+        ocrStatus.className = `status-pill ${state}`;
+        ocrStatus.textContent = text;
+    }
 }
 
 async function ensureModelLoaded(requestedAlias) {
