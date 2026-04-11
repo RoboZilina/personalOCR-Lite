@@ -6,6 +6,7 @@
 const STORAGE_KEY = "vnocr_settings";
 
 const defaultSettings = {
+    ocrEngine: "tesseract",       // "tesseract", "paddle", etc.
     ocrMode: "default_mini",      // "default_mini", "adaptive", "paddle", etc.
     autoCapture: true,
     autoCopy: true,

@@ -420,6 +420,13 @@ if (modeSelector) {
     });
 }
 
+if (engineSelector) {
+    engineSelector.addEventListener('change', (e) => {
+        setSetting('ocrEngine', e.target.value);
+        console.log('[State Mirror] Engine saved:', e.target.value);
+    });
+}
+
 
 
 // ==========================================
@@ -1556,25 +1563,30 @@ async function globalInitialize() {
     // Ensure panic button is removed from UI as fallback/panic logic is retired
     document.getElementById('panic-btn')?.remove();
 
-    // UI Synchronization: Ensure the dropdowns match saved settings early
-    const savedMode = getSetting('ocrMode');
-    const isPaddle = (savedMode === 'paddle');
+    // Startup Engine Load: Restore the primary engine choice exactly once
+    const savedEngine = getSetting('ocrEngine') || 'tesseract';
+    console.debug("[INIT] Restoring engine:", savedEngine);
+    
+    // 1. Initial UI update for selector
+    if (engineSelector) engineSelector.value = savedEngine;
 
-    if (isPaddle) {
-        const count = getSetting('paddleLineCount') || 3;
-        if (engineSelector) engineSelector.value = `paddle_${count}`;
-        if (modeSelector) modeSelector.disabled = true;
-    } else {
-        if (engineSelector) engineSelector.value = 'tesseract';
-        if (modeSelector) {
-            // On first load, ensure mode selector is valid
-            modeSelector.disabled = false;
-            modeSelector.value = savedMode || 'default_mini';
-        }
+    // 2. Trigger actual engine load
+    await switchEngineModular(savedEngine);
+    if (engineReadyPromise) await engineReadyPromise;
+
+    // 3. Post-load Mode Restoration (Deterministic)
+    const savedMode = getSetting('ocrMode') || 'default_mini';
+    console.debug("[INIT] Restoring mode after engine load:", savedMode);
+    
+    if (modeSelector) {
+        modeSelector.value = savedMode;
+        // Logic for Paddle: ensure mode is disabled if engine is paddle
+        const isPaddle = savedEngine.startsWith('paddle');
+        modeSelector.disabled = isPaddle;
     }
 
-    // Startup Engine Load: Load the saved engine exactly once
-    await switchEngineModular(isPaddle ? (engineSelector?.value || 'paddle_3') : 'tesseract');
+    // 4. Final Status Affirmation
+    setOCRStatus('ready', savedEngine);
 
 
 
