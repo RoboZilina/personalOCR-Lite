@@ -270,15 +270,15 @@ export class PaddleOCR {
         }
     }
 
-    dispose() {
+    async dispose() {
         // Explicit Session Disposal (if supported)
         try {
             if (this.detSession) {
-                if (typeof this.detSession.release === 'function') this.detSession.release();
+                if (typeof this.detSession.release === 'function') await this.detSession.release();
                 else if (this.detSession.handler && typeof this.detSession.handler.dispose === 'function') this.detSession.handler.dispose();
             }
             if (this.recSession) {
-                if (typeof this.recSession.release === 'function') this.recSession.release();
+                if (typeof this.recSession.release === 'function') await this.recSession.release();
                 else if (this.recSession.handler && typeof this.recSession.handler.dispose === 'function') this.recSession.handler.dispose();
             }
         } catch (e) {

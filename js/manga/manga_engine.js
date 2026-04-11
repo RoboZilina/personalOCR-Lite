@@ -26,9 +26,9 @@ export class MangaOCREngine {
      * Initializes the dual ONNX sessions.
      */
     async load(
-        encoderPath = 'https://github.com/RoboZilina/personalOCR/releases/download/manga-models-v1.0/encoder_model.onnx',
-        decoderPath = 'https://github.com/RoboZilina/personalOCR/releases/download/manga-models-v1.0/decoder_model.onnx',
-        vocabPath = 'https://github.com/RoboZilina/personalOCR/releases/download/manga-models-v1.0/vocab.json',
+        encoderPath = './models/manga/encoder_model.onnx',
+        decoderPath = './models/manga/decoder_model.onnx',
+        vocabPath = './models/manga/vocab.json',
         configPath = './models/manga/config.json',
         preprocessorPath = './models/manga/preprocessor_config.json'
     ) {
@@ -156,7 +156,7 @@ export class MangaOCREngine {
         canvas.width = d; canvas.height = d;
         const ctx = canvas.getContext('2d');
 
-        // Direct stretch to 224×224 — matches ViTImageProcessor default (no aspect ratio)
+        // Direct stretch to 224x224 - matches official ViTImageProcessor behavior
         ctx.drawImage(sourceCanvas, 0, 0, d, d);
 
         const pixels = ctx.getImageData(0, 0, d, d).data;
@@ -165,14 +165,76 @@ export class MangaOCREngine {
         const std  = this.imageStd;
 
         for (let i = 0, j = 0; i < pixels.length; i += 4, j++) {
-            // BT.601 greyscale — mirrors PIL img.convert('L').convert('RGB')
-            const grey = (0.299 * pixels[i] + 0.587 * pixels[i + 1] + 0.114 * pixels[i + 2]) / 255;
-            const norm = (grey - mean[0]) / std[0]; // all channels identical after greyscale
+            // BT.601 greyscale - STRICTLY matches PIL img.convert('L')
+            let grey = (0.299 * pixels[i] + 0.587 * pixels[i + 1] + 0.114 * pixels[i + 2]);
+            
+            // NO INVERSION: the author's code applies no inversion or thresholding.
+            const norm = (grey / 255 - mean[0]) / std[0]; // all channels identical after greyscale
             floatData[j]             = norm;
             floatData[j + d * d]     = norm;
             floatData[j + d * d * 2] = norm;
         }
+
         return new ort.Tensor('float32', floatData, [1, 3, d, d]);
+    }
+
+
+    /**
+     * Executes the VED OCR model on the given canvas image logic.
+     * @param {HTMLCanvasElement} sourceCanvas
+     * @returns {Promise<string>} The decoded Japanese text
+     */
+    async recognize(sourceCanvas) {
+        if (!this.encoderSession || !this.decoderSession) {
+            throw new Error("MangaOCREngine: ONNX sessions not initialized. Call load() first.");
+        }
+
+        try {
+            const pixelValues = this._preprocessToTensor(sourceCanvas);
+
+            const encoderFeeds = { pixel_values: pixelValues };
+            const encoderResults = await this.encoderSession.run(encoderFeeds);
+            const encoderHiddenStates = encoderResults.last_hidden_state;
+
+            let generatedTokens = [this.BOS_TOKEN_ID]; // Using fixed BOS_TOKEN_ID!
+
+            for (let step = 0; step < this.MAX_LENGTH; step++) {
+                const decoderInputIds = new BigInt64Array(generatedTokens.length);
+                for (let i = 0; i < generatedTokens.length; i++) {
+                    decoderInputIds[i] = BigInt(generatedTokens[i]);
+                }
+                const inputIdsTensor = new ort.Tensor('int64', decoderInputIds, [1, generatedTokens.length]);
+
+                const decoderFeeds = {
+                    input_ids: inputIdsTensor,
+                    encoder_hidden_states: encoderHiddenStates
+                };
+
+                const decoderResults = await this.decoderSession.run(decoderFeeds);
+                const logits = decoderResults.logits; 
+                const nextToken = this._greedyChoice(logits);
+
+                if (nextToken === this.EOS_TOKEN_ID) {
+                    break;
+                }
+                generatedTokens.push(nextToken);
+            }
+
+            const chars = generatedTokens.map(t => this.vocab[t] || '');
+            let text = chars.join('').replace(/ /g, '').replace(/<[^>]+>/g, '');
+
+            // Ensure ViT system tokens like [CLS] and [SEP] are stripped. 
+            // We use literal replaces instead of global bracket matching to protect in-game brackets.
+            text = text.replace(/\[CLS\]/g, '').replace(/\[SEP\]/g, '').replace(/\[PAD\]/g, '').replace(/\[UNK\]/g, '');
+
+            text = text.replace(/\u2026/g, '...'); 
+            text = text.replace(/[・.]{2,}/g, m => '.'.repeat(m.length));
+            text = text.replace(/\s+/g, '');                              // strip whitespace
+            return { text };
+        } catch (err) {
+            console.error("[MANGA-ERROR] Recognition Failed:", err);
+            return { text: "" };
+        }
     }
 
     /**

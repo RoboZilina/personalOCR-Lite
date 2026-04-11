@@ -144,6 +144,11 @@ async function switchEngineModular(id) {
 
     console.debug("[ENGINE-DEBUG] switchEngineModular() requested:", id, "normalized:", normalizedId);
 
+    const mangaNote = document.getElementById('manga-note');
+    if (mangaNote) {
+        mangaNote.style.display = normalizedId === 'manga' ? 'flex' : 'none';
+    }
+
     // 2) Lock UI during transition
     if (engineSelector) engineSelector.disabled = true;
     if (modeSelector) modeSelector.disabled = true;
@@ -156,6 +161,13 @@ async function switchEngineModular(id) {
         } catch (err) {
             console.error('Engine dispose error:', err);
         }
+    }
+    
+    // 3.5) Toggle Manga Dashboard Layout
+    const mainNode = document.querySelector('.app-main');
+    if (mainNode) {
+        if (normalizedId === 'manga') mainNode.classList.add('manga-layout');
+        else mainNode.classList.remove('manga-layout');
     }
 
     // 4) Instantiate new engine via factory
@@ -432,13 +444,6 @@ if (modeSelector) {
     });
 }
 
-if (engineSelector) {
-    engineSelector.addEventListener('change', (e) => {
-        setSetting('ocrEngine', e.target.value);
-        console.log('[State Mirror] Engine saved:', e.target.value);
-    });
-}
-
 
 
 // ==========================================
@@ -555,11 +560,40 @@ if (selectionOverlay) {
         const hint = document.getElementById('selection-hint');
         if (hint) hint.classList.remove('visible');
     };
-    window.addEventListener('mousemove', e => { if (isSelecting) { const pos = getMousePos(e); currentX = pos.x; currentY = pos.y; drawSelectionRect(); } });
+
+    const applyMangaConstraint = () => {
+        const engineSelect = document.getElementById('model-selector');
+        if (engineSelect && engineSelect.value === 'manga') {
+            const w = Math.abs(currentX - startX);
+            const h = Math.abs(currentY - startY);
+            if (h === 0) return; // avoid div by zero on first pixel
+            
+            if (w > h * 1.2) {
+                const allowedW = h * 1.2;
+                currentX = currentX > startX ? startX + allowedW : startX - allowedW;
+            } else if (h > w * 1.2) {
+                const allowedH = w * 1.2;
+                currentY = currentY > startY ? startY + allowedH : startY - allowedH;
+            }
+        }
+    };
+
+    window.addEventListener('mousemove', e => { 
+        if (isSelecting) { 
+            const pos = getMousePos(e); 
+            currentX = pos.x; 
+            currentY = pos.y; 
+            applyMangaConstraint();
+            drawSelectionRect(); 
+        } 
+    });
+    
     window.addEventListener('mouseup', e => {
         if (!isSelecting) return;
         isSelecting = false; const pos = getMousePos(e);
         currentX = pos.x; currentY = pos.y;
+        applyMangaConstraint();
+        
         const w = selectionOverlay.width, h = selectionOverlay.height;
         const finalRect = {
             x: Math.min(startX, currentX) / w,
@@ -1429,25 +1463,27 @@ function initSettings() {
     loadSettings();
     applySettingsToUI();
 
-    const mode = getSetting('ocrMode') || 'tesseract';
+    const engine = getSetting('ocrEngine') || 'tesseract';
     const paddleLines = getSetting('paddleLineCount') || 3;
     const showWarning = getSetting('showHeavyWarning');
 
     // Startup Banner Logic
-    if (mode === 'paddle' && showWarning) {
+    if (engine === 'paddle' && showWarning) {
         document.getElementById('startup-banner')?.classList.add('active');
     }
 
     // Sync Engine Selector UI
-    if (mode === 'tesseract') {
+    if (engine === 'tesseract') {
         engineSelector.value = 'tesseract';
+    } else if (engine === 'manga') {
+        engineSelector.value = 'manga';
     } else {
         engineSelector.value = `paddle_${paddleLines}`;
     }
 
     // Sync State Mirror (Initial)
     state.engine = engineSelector.value;
-    state.mode = mode;
+    state.mode = getSetting('ocrMode') || 'default_mini';
     state.paddleLineCount = paddleLines;
 
     // Update guides if present (handled via drawSelectionRect indirectly)
@@ -1480,19 +1516,32 @@ engineSelector.addEventListener('change', async () => {
 
     // 3. Intercept PaddleOCR if warnings are enabled
     if (baseMode === 'paddle' && getSetting('showHeavyWarning')) {
-        const currentMode = getSetting('ocrMode');
+        const currentEngine = getSetting('ocrEngine');
         const currentLines = getSetting('paddleLineCount');
-        engineSelector.value = (currentMode === 'tesseract')
+        engineSelector.value = (currentEngine === 'tesseract')
             ? 'tesseract'
-            : `paddle_${currentLines}`;
+            : (currentEngine === 'paddle' ? `paddle_${currentLines}` : currentEngine);
 
         document.getElementById('paddle-modal').classList.add('active');
         if (selectionRect) window.drawSelectionRect();
         return;
     }
 
+    // 3.5 Intercept MangaOCR if warnings are enabled
+    if (baseMode === 'manga' && getSetting('showMangaWarning') !== false) {
+        const currentEngine = getSetting('ocrEngine');
+        const currentLines = getSetting('paddleLineCount');
+        engineSelector.value = (currentEngine === 'tesseract')
+            ? 'tesseract'
+            : (currentEngine === 'paddle' ? `paddle_${currentLines}` : currentEngine);
+
+        document.getElementById('manga-modal').classList.add('active');
+        if (selectionRect) window.drawSelectionRect();
+        return;
+    }
+
     // 4. Persist engine mode
-    setSetting('ocrMode', baseMode);
+    setSetting('ocrEngine', baseMode);
 
     // Sync State Mirror
     state.engine = engineSelector.value;
@@ -1530,8 +1579,38 @@ document.getElementById('paddle-continue')?.addEventListener('click', async () =
 });
 
 document.getElementById('paddle-cancel')?.addEventListener('click', () => {
-    engineSelector.value = previousMode;
+    // Rely on currentEngine logic to fallback
+    const currentEngine = getSetting('ocrEngine');
+    const currentLines = getSetting('paddleLineCount');
+    engineSelector.value = (currentEngine === 'tesseract') ? 'tesseract' : (currentEngine === 'paddle' ? `paddle_${currentLines}` : currentEngine);
+    
     document.getElementById('paddle-modal').classList.remove('active');
+    if (selectionRect) window.drawSelectionRect();
+});
+
+// 6.3.5 Manga Modal Event Listeners
+document.getElementById('manga-continue')?.addEventListener('click', async () => {
+    const checkbox = document.getElementById('manga-warning-checkbox');
+    if (checkbox?.checked) {
+        setSetting('showMangaWarning', false);
+    }
+
+    engineSelector.value = 'manga';
+    setSetting('ocrEngine', 'manga');
+    state.engine = 'manga';
+    
+    await switchEngineModular('manga');
+
+    document.getElementById('manga-modal').classList.remove('active');
+    if (selectionRect) window.drawSelectionRect();
+});
+
+document.getElementById('manga-cancel')?.addEventListener('click', () => {
+    const currentEngine = getSetting('ocrEngine');
+    const currentLines = getSetting('paddleLineCount');
+    engineSelector.value = (currentEngine === 'tesseract') ? 'tesseract' : (currentEngine === 'paddle' ? `paddle_${currentLines}` : currentEngine);
+    
+    document.getElementById('manga-modal').classList.remove('active');
     if (selectionRect) window.drawSelectionRect();
 });
 

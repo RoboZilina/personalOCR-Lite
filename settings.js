@@ -11,6 +11,7 @@ const defaultSettings = {
     autoCapture: true,
     autoCopy: true,
     showHeavyWarning: true,
+    showMangaWarning: true,
     theme: "dark",
     historyVisible: true,
     debug: false,

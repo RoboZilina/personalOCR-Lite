@@ -111,6 +111,32 @@ body {
     cursor: text; margin: 0; 
 }
 
+/* MANGA LAYOUT OVERRIDES (Side-by-side) */
+.app-main.manga-layout .main-workspace {
+    flex-direction: row;
+}
+
+.app-main.manga-layout .transcription-tray {
+    width: 500px;
+    height: 100%;
+    border-top: none;
+    border-left: 1px solid var(--border);
+}
+
+.app-main.manga-layout .latest-line-window {
+    height: auto;
+    align-items: flex-start;
+    padding-top: 32px;
+}
+
+.app-main.manga-layout .latest-text-content {
+    font-size: 1.5rem;
+}
+
+.app-main.manga-layout .debug-img {
+    display: none !important;
+}
+
 /* SIDEBAR */
 .history-sidebar { display: flex; flex-direction: column; background: #08080a; min-height: 0; overflow: hidden; }
 .sidebar-header { padding: 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; }
