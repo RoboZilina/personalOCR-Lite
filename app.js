@@ -76,6 +76,7 @@ const engines = {
     tesseract: {
         factory: (deps) => new TesseractEngine({ reportStatus: deps.reportStatus }),
         supportsModes: true,
+        defaultMode: 'default_mini',
         preprocess: async (canvas, mode) => applyTesseractPreprocessing(canvas, mode),
         postprocess: (results) => results.join(' ').trim(),
         handleError: (error) => { console.error(error); return "[Tesseract Error]"; },
@@ -1634,12 +1635,21 @@ async function globalInitialize() {
     await switchEngineModular(savedEngine);
 
     // 3. Post-load Mode Restoration (Deterministic)
-    const savedMode = getSetting('ocrMode') || 'default_mini';
-    console.debug("[INIT] Restoring mode after engine load:", savedMode);
+    const engineInfo = EngineManager.getInfo();
+    let savedMode = getSetting('ocrMode');
+    const defaultMode = engines[savedEngine]?.defaultMode || 'default_mini';
+
+    // The Fix: Explicitly check for falsy values (empty strings, null, undefined)
+    if (!savedMode) {
+        console.debug("[INIT] No saved mode found or empty string. Falling back to registry default:", defaultMode);
+        savedMode = defaultMode;
+    } else {
+        console.debug("[INIT] Restoring saved mode:", savedMode);
+    }
     
     if (modeSelector) {
         modeSelector.value = savedMode;
-        modeSelector.disabled = !EngineManager.getInfo().capabilities.supportsModes;
+        modeSelector.disabled = !engineInfo.capabilities.supportsModes;
     }
 
     // 4. Final Status Affirmation
@@ -1800,7 +1810,7 @@ globalInitialize();
 
 /** Public API Namespace (Auditability Phase) */
 window.VNOCR = {
-    version: '2.0.0',
+    version: '2.0.1',
     isReady: EngineManager.isReady,
     drawSelectionRect: window.drawSelectionRect,
     captureFrame: window.captureFrame,

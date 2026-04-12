@@ -93,7 +93,10 @@ export function setSetting(key, value) {
 export function applySettingsToUI() {
     // 1. OCR Mode / Image Process Selector
     const modeSelector = document.querySelector("#mode-selector");
-    if (modeSelector) modeSelector.value = currentSettings.ocrMode;
+    if (modeSelector) {
+        // Safe Fallback: Prevent empty strings (from corrupted state) from clearing the dropdown
+        modeSelector.value = currentSettings.ocrMode || 'default_mini';
+    }
 
     // 2. Auto-Capture Toggle
     const autoToggle = document.querySelector("#auto-capture-toggle");
