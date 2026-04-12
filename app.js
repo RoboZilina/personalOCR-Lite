@@ -90,6 +90,7 @@ const engines = {
             { reportStatus: deps.reportStatus }
         ),
         supportsModes: false,
+        defaultMode: null,
         preprocess: async (canvas, mode, lineCount) => applyPaddlePreprocessing(canvas, lineCount),
         postprocess: (results) => results.join('\n').trim(),
         handleError: (error) => { console.error(error); return "[PaddleOCR Error]"; },
@@ -99,6 +100,7 @@ const engines = {
     manga: {
         factory: (deps) => new MangaOCREngine({ reportStatus: deps.reportStatus }),
         supportsModes: false,
+        defaultMode: null,
         preprocess: async (canvas) => [canvas],
         postprocess: (results) => results.join('').trim(),
         handleError: (error) => { console.error(error); return "[MangaOCR Error]"; },
@@ -1465,12 +1467,20 @@ function initSettings() {
     }
 
     // Sync Engine Selector UI
-    if (engine === 'tesseract') {
+    // The Fix: Explicitly handle corrupted/empty strings by falling back to 'tesseract'
+    let uiEngine = engine;
+    if (!uiEngine) {
+        console.debug("[INIT] ocrEngine setting is empty. Defaulting UI to tesseract.");
+        uiEngine = 'tesseract';
+    }
+
+    if (uiEngine === 'tesseract') {
         engineSelector.value = 'tesseract';
-    } else if (engine === 'manga') {
+    } else if (uiEngine === 'manga') {
         engineSelector.value = 'manga';
     } else {
-        engineSelector.value = `paddle_${paddleLines}`;
+        // Assume paddle variant or fallback
+        engineSelector.value = uiEngine.startsWith('paddle_') ? uiEngine : `paddle_${paddleLines}`;
     }
 
     // Update guides if present (handled via drawSelectionRect indirectly)
@@ -1625,11 +1635,28 @@ async function globalInitialize() {
     document.getElementById('panic-btn')?.remove();
 
     // Startup Engine Load: Restore the primary engine choice exactly once
-    const savedEngine = getSetting('ocrEngine') || 'tesseract';
-    console.debug("[INIT] Restoring engine:", savedEngine);
+    let savedEngine = getSetting('ocrEngine');
+    
+    // The Fix: Explicitly check for falsy values (empty strings, null, undefined)
+    if (!savedEngine) {
+        console.debug("[INIT] ocrEngine is empty. Falling back to default: tesseract");
+        savedEngine = 'tesseract';
+    } else {
+        console.debug("[INIT] Restoring engine:", savedEngine);
+    }
     
     // 1. Initial UI update for selector
-    if (engineSelector) engineSelector.value = savedEngine;
+    if (engineSelector) {
+        // Map variant IDs to UI values safely
+        if (savedEngine === 'tesseract' || savedEngine === 'manga') {
+            engineSelector.value = savedEngine;
+        } else if (savedEngine === 'paddle') {
+            const lines = getSetting('paddleLineCount') || 3;
+            engineSelector.value = `paddle_${lines}`;
+        } else {
+            engineSelector.value = savedEngine; // already a specific variant like "paddle_2"
+        }
+    }
 
     // 2. Trigger actual engine load
     await switchEngineModular(savedEngine);
@@ -1810,7 +1837,7 @@ globalInitialize();
 
 /** Public API Namespace (Auditability Phase) */
 window.VNOCR = {
-    version: '2.0.1',
+    version: '2.1.0',
     isReady: EngineManager.isReady,
     drawSelectionRect: window.drawSelectionRect,
     captureFrame: window.captureFrame,

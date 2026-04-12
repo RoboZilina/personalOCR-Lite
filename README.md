@@ -1,60 +1,46 @@
-# Personal OCR — Public Version ⚡
+# VN-OCR — Hardened Milestone (v2.1.0)
 
-Free, browser-only Japanese OCR for Japanese Media. No install, no backend, works anywhere.
+A high-performance, browser-only Japanese OCR suite for Japanese Media. No installation, no backend, and uncompromising privacy.
+
+## v2.1.0: The Hardened Baseline
+This version represents a major architectural milestone focused on **Defensive State Management** and **Modular Engine Reliability**. The application is now architecturally immune to corrupted state glitches and "blank selector" bugs that often plague PWAs during updates.
 
 ## Features
-- **Transformers.js ONNX Integration** — Native in-browser inference for advanced neural networks.
-- **Hardened Modular Architecture** — Event-driven engine registry for maximum stability and seamless switching.
-- **Explicit Memory Disposal** — Real-time purging of pixel buffers (canvas zeroing) to prevent memory leaks on high-res captures.
-- **PaddleOCR (v5) Engine** — High-precision neural-network recognizer (loads ~20-80MB). Includes vertical image slicing for 1–4 lines of horizontal text, optimized for dialogue boxes.
-- **MangaOCR Engine** — Transformers ViT model specifically tuned for Japanese Manga panels (loads ~450MB). 
+- **ONNX Runtime Web Integration** — Native in-browser inference for advanced neural networks (PaddleOCR & MangaOCR) via a custom optimized VED pipeline.
+- **Global Defensive Architecture** — Deterministic state restoration that guarantees a valid UI state regardless of `localStorage` conditions.
+- **Modular Engine Registry** — Fully decoupled OCR backend (Tesseract, PaddleOCR, MangaOCR) allowing for seamless engine switching and unified readiness reporting.
+- **Explicit Memory Disposal** — Real-time zeroing of pixel buffers and canvas scaling contexts to prevent memory leaks during high-resolution OCR operations.
+- **PaddleOCR (v5) Engine** — High-precision neural-network recognizer. Includes vertical image slicing for 1–4 lines of text, optimized for dialogue boxes.
+- **MangaOCR Engine** — Vision Transformer (ViT) model specifically tuned for Japanese Manga panels. 
     - > [!IMPORTANT]
-    - > **Manga Context**: MangaOCR is trained strictly on comic panels. It forces a square selection and adapts the UI into a side-by-side view. It may struggle with horizontal media interfaces or standard VN UI rows.
-- **Visual Slicing Guides** — Real-time canvas overlays to align text rows during PaddleOCR selection.
-- **Adjustable UI Sizes** — Customize Text Area and Font sizes (Standard/Small/Large) for ideal readability.
-- **8 image preprocessing modes** with local mean adaptive thresholding, polarity detection, and halo removal.
-- **3×3 median denoising** with sorting-network optimization.
-- **Adjustable upscale slider** (1×–4× scaling before OCR).
-- **4 Tesseract language models** (`jpn`, `jpn_best`, `jpn_fast`, `jpn_vert`)
-- **Multi-Pass and Last Resort pipelines** that fuse results from multiple preprocessing combos.
+    - > **Core Purity**: When using MangaOCR or PaddleOCR, the application automatically bypasses the image preprocessors to feed raw, high-fidelity pixels directly into the neural network's internal pipeline.
+- **Adjustable UI Sizes** — Customize Text Area and Font sizes (Standard/Small/Large) for ideal readability in the side menu.
+- **8 image preprocessing modes** for Tesseract-based OCR (Adaptive, Multi-Pass, Last Resort, etc.).
 - **Auto-capture** with pixel-level change detection and stabilization delay.
-- **History log** with per-line copy/speak buttons, persisted across sessions (100-item limit).
-- **Dark/Light themes** with system preference detection.
-- **PWA installable** — runs as a standalone app.
+- **History log** with per-line copy/speak buttons, persisted across sessions.
 - **Seamless Support** — One-click "Contact / Report Issue" link in the side menu.
 
 ## Hosting
-Upload all project files to any web host:
-- `index.html`
-- `styles.css`
-- `app.js`
-- `manifest.json`
-- `service-worker.js`
-- `icon-192.png`
-- `icon-512.png`
+Upload all project files to any static web host (GitHub Pages, Netlify, itch.io):
+- `index.html`, `styles.css`, `app.js`
+- `manifest.json`, `service-worker.js`
+- `icon-192.png`, `icon-512.png`
 
-Works on GitHub Pages, Netlify, itch.io, or any static hosting.
+**Deployment note:** Serve `service-worker.js` with `Cache-Control: no-cache` to ensure version updates (like this v2.1.0 release) propagate to all users instantly.
 
-**Deployment note:** Serve `service-worker.js` with `Cache-Control: no-cache` to ensure updates propagate.
-
-## Preprocessing Modes
+## Preprocessing Modes (Tesseract Engine Only)
 
 | Mode | UI Label | Best For |
 |---|---|---|
-| Default Mini | `Default Mini` | Balanced speed/accuracy — good for clean, modern VNs |
-| Default Full | `Default Full` | Maximum fidelity — best for classic or low-res VNs |
-| Adaptive | `Adaptive` | VN-optimized — handles gradients and semi-transparent text boxes |
-| Multi-Pass | `Multi-Pass` | Runs 5 combos and votes for best result — slower but reliable |
-| Last Resort | `Last Resort` | 7-pass nuclear option with textbox isolation and stroke reconstruction |
-| Contrast | `Contrast` | Hard binarization — best for flat, clean backgrounds |
-| Grayscale | `Grayscale` | Preserved tonal detail — good for colorful or gradient backgrounds |
-| Raw | `Raw` | No preprocessing — direct capture for testing |
+| Default Mini | `Default Mini` | Balanced speed/accuracy — the recommended baseline. |
+| Default Full | `Default Full` | Maximum fidelity — best for classic or low-res VNs. |
+| Adaptive | `Adaptive` | VN-optimized — handles gradients and semi-transparent text boxes. |
+| Multi-Pass | `Multi-Pass` | Runs 5 combos and votes for best result — slower but very reliable. |
+| Last Resort | `Last Resort` | 7-pass nuclear option with stroke reconstruction. |
+| Raw | `Raw` | No preprocessing — direct capture for testing. |
 
 ## Tips
-- **Neural Network Caching:** PaddleOCR and MangaOCR download large models on first use. Since they use your browser's persistent cache, they load instantly and function fully offline on future visits.
-- Start with **Default Mini** — it handles most cases well for Tesseract.
-- Use **Scaling 3×** or **4×** for very small text.
-- Switch to `jpn_vert` for vertically written Tesseract boxes.
-- If using **MangaOCR**, try using the **Contrast** preprocessing mode. MangaOCR was trained strictly on black-and-white page scans so providing a high-contrast image gives the best results.
-- The debug thumbnail (next to RE-CAPTURE) shows the exact image sent to OCR.
-- Use `?no-sw` in the URL to disable the service worker if updates get stuck.
+- **Neutral Engine Bypassing:** When using **PaddleOCR** or **MangaOCR**, changing the "Image Processing Mode" has no effect. These engines are pre-calibrated to work with the raw capture area.
+- Start with **Default Mini** for Tesseract. It is optimized for modern web-based and high-resolution media.
+- Use **Scaling 3×** or **4×** for very small or highly packed text.
+- Use `?no-sw` in the URL to bypass the service worker if you suspect a cache-related issue.

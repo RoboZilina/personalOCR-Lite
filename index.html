@@ -195,7 +195,7 @@
                         <li><strong>MangaOCR (Japanese):</strong> Transformers ViT model. Specifically tuned for recognizing perfectly square blocks of manga text. Automatically adapts UI and mouse constraints for best results. Downloads ~450 MB of data on first use, permanently cached for lightning-fast offline use thereafter.</li>
                     </ul>
                     <p style="font-size: 12px; opacity: 0.8; border-top: 1px solid var(--border); padding-top: 8px; margin-top: 10px;">
-                        <em>When <strong>PaddleOCR</strong> or <strong>MangaOCR</strong> are selected, the Image Processing Mode dropdown is purposefully bypassed — they use their own pipelines optimized for neural network recognition. Switch back to <strong>Tesseract</strong> to use preprocessing modes again.</em>
+                        <em>When <strong>PaddleOCR</strong> or <strong>MangaOCR</strong> are selected, the Image Processing Mode dropdown is purposefully bypassed — they use their own high-fidelity pipelines optimized for neural network recognition. Switch back to <strong>Tesseract</strong> to use preprocessing modes again.</em>
                     </p>
                 </div>
                 <div class="guide-card">
@@ -227,9 +227,8 @@
                 <div class="guide-card">
                     <h3>💡 Pro Tips</h3>
                     <ul>
-                        <li><strong>🚨 Panic Button:</strong> One click instantly switches to Tesseract Multi-Pass mode and
-                            re-fires OCR — no menu diving needed.</li>
-                        <li><strong>UI Customization:</strong> Use the <strong>Site Menu</strong> (≡) to adjust the <strong>Text Area Size</strong> and <strong>Text Size</strong>. This is critical for matching the output to your reading distance and device screen.</li>
+                        <li><strong>Reset to Defaults:</strong> Located in the Side Menu (≡). Use this to restore all UI, engine, and processing settings to their factory state if the application behavior becomes unexpected.</li>
+                        <li><strong>UI Customization:</strong> Use the <strong>Side Menu</strong> (≡) to adjust the <strong>Text Area Size</strong> and <strong>Text Size</strong>. This is critical for matching the output to your reading distance and device screen.</li>
                         <li><strong>Manga Focus:</strong> MangaOCR is strictly optimized for comic panels. For standard Visual Novel UI text, <strong>PaddleOCR</strong> or <strong>Tesseract</strong> will almost always yield better results.</li>
                         <li><strong>Clipboard:</strong> Select text in the output or history to auto-copy it. Toggle via <strong>Auto-Copy</strong> in the menu. Use 📋 to copy a full entry.</li>
                         <li><strong>History:</strong> The sidebar logs up to 100 lines, restored on next session. Use 📋
@@ -287,7 +286,7 @@
 
     <div id="side-menu" class="side-menu">
         <div class="menu-header">
-            <h3>Site Menu</h3>
+            <h3>Side Menu</h3>
         </div>
         <div class="menu-section">
             <h4>Theme</h4>

@@ -134,11 +134,13 @@ export function applySettingsToUI() {
     if (warningCheckbox) warningCheckbox.checked = !currentSettings.showHeavyWarning;
 
     // 5. Size modifiers via body classes
+    const currentTextAreaSize = currentSettings.textAreaSize || 'standard';
     document.body.classList.remove('text-area-small', 'text-area-standard', 'text-area-large');
-    document.body.classList.add(`text-area-${currentSettings.textAreaSize}`);
+    document.body.classList.add(`text-area-${currentTextAreaSize}`);
 
+    const currentTextSize = currentSettings.textSize || 'standard';
     document.body.classList.remove('text-size-small', 'text-size-standard', 'text-size-large');
-    document.body.classList.add(`text-size-${currentSettings.textSize}`);
+    document.body.classList.add(`text-size-${currentTextSize}`);
 
     // 6. Upscale Slider
     const upscaleSlider = document.querySelector("#upscale-slider");
@@ -150,7 +152,7 @@ export function applySettingsToUI() {
     document.querySelectorAll('.menu-subitem-btn[data-setting]').forEach(btn => {
         const settingKey = btn.dataset.setting;
         const val = btn.dataset.value;
-        const currentVal = currentSettings[settingKey];
+        const currentVal = currentSettings[settingKey] || defaultSettings[settingKey]; // Defensive fallback
         btn.classList.toggle('active', String(currentVal) === val);
     });
 }
