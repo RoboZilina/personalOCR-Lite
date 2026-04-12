@@ -290,7 +290,13 @@ body.text-area-large .app-main.manga-layout .transcription-tray { width: 650px; 
     z-index: 5000; transform: translateX(-100%); 
     transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); 
     display: flex; flex-direction: column; padding: 60px 20px 20px 20px;
+    overflow-y: auto; overflow-x: hidden;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
 }
+.side-menu::-webkit-scrollbar { width: 6px; }
+.side-menu::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+.side-menu::-webkit-scrollbar-track { background: transparent; }
 .side-menu.open { transform: translateX(0); }
 .menu-header { margin-bottom: 32px; border-bottom: 1px solid var(--border); padding-bottom: 12px; }
 .menu-header h3 { font-size: 14px; letter-spacing: 1px; color: var(--text-dim); text-transform: uppercase; }

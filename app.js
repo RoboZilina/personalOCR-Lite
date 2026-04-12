@@ -1717,6 +1717,7 @@ globalInitialize();
     const menuBackdrop = document.getElementById('menu-backdrop');
     const menuInstall = document.getElementById('menu-install');
     const menuGuide = document.getElementById('menu-guide');
+    const menuContact = document.getElementById('menu-contact');
     const menuReset = document.getElementById('menu-reset');
 
     const openMenu = () => {
@@ -1750,6 +1751,12 @@ globalInitialize();
             const hb = document.getElementById('help-btn');
             if (hb) hb.click();
         }
+        closeMenu();
+    };
+
+    if (menuContact) menuContact.onclick = () => {
+        console.debug("[MENU] Opening GitHub Issues Page...");
+        window.open('https://github.com/RoboZilina/personalOCR/issues/new', '_blank');
         closeMenu();
     };
 
