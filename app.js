@@ -21,7 +21,6 @@
  * 
  * STATE MANAGEMENT:
  * State is mirrored in the `state` object (Auditability Phase) and checked via the 
- * `isEngineReady` API. Logic currently reads primary state from DOM/Settings to 
  * maintain compatibility with the legacy baseline.
  */
 
@@ -43,14 +42,8 @@ import { PaddleOCR } from './js/paddle/paddle_engine.js';
 import { MangaOCREngine } from './js/manga/manga_engine.js';
 
 /** Unified Readiness API (Hardening Phase) */
-function isEngineReady(engine) {
-    if (engine === 'tesseract') return EngineManager.isReady();
-    const normalized = engine.replace(/_.+$/, "");
-    if (normalized === 'paddle') {
-        return EngineManager.getInfo().id === 'paddle' && EngineManager.isReady();
-    }
-    return false;
-}
+
+
 
 // ==========================================
 
@@ -188,7 +181,7 @@ const EngineManager = (() => {
         notifyStatus('idle', 'Engine Disposed');
     }
 
-    // Bridge for legacy code
+    
     function _syncEngine(engine, id) {
         currentEngine = engine;
         currentEngineId = id;
@@ -233,8 +226,11 @@ const EngineManager = (() => {
         getCapabilities: () => currentCapabilities,
         getInfo: () => currentInfo,
         // Temporary bridge for legacy code (removed later)
+        
         _getCurrentEngine: () => currentEngine,
+        
         _syncEngine,
+        
         _notifyStatus: notifyStatus,
         loadEngine,
         disposeEngine,
@@ -247,18 +243,9 @@ window.EngineManager = EngineManager;
 
 
 /** Global reference to the currently active modular engine */
-let currentEngine = null;
-let currentEngineId = null;      // normalized ID: "tesseract", "paddle"
 let engineReadyPromise = null;
 
 // Expose read-only engine state for UI and diagnostics
-Object.defineProperty(window, "currentEngine", {
-    get() { return currentEngine; }
-});
-
-Object.defineProperty(window, "currentEngineId", {
-    get() { return currentEngineId; }
-});
 
 Object.defineProperty(window, "engineReadyPromise", {
     get() { return engineReadyPromise; }
@@ -271,7 +258,7 @@ Object.defineProperty(window, "engineReadyPromise", {
 async function switchEngineModular(id) {
     // 1) Normalize UI IDs like "paddle_2" → "paddle"
     const normalizedId = id.replace(/_.+$/, "");
-    currentEngineId = normalizedId;
+
 
     console.debug("[ENGINE-DEBUG] switchEngineModular() requested:", id, "normalized:", normalizedId);
 
@@ -315,15 +302,10 @@ async function switchEngineModular(id) {
         const newEngine = await engineReadyPromise;
 
         // Legacy sync
-        currentEngine = newEngine;
         if (normalizedId === 'tesseract') {
-            window.ocrWorker = newEngine.worker;
-            window.isOcrReady = EngineManager.isReady();
         }
     } catch (err) {
         console.error('Engine load error:', err);
-        currentEngine = null;
-        if (normalizedId === 'tesseract') window.isOcrReady = false;
     }
 
     // 8) Restore UI state
@@ -358,8 +340,8 @@ document.getElementById('install-btn')?.addEventListener('click', async () => {
 let voices = [];
 let currentUtterance = null;
 let videoStream = null;
-let ocrWorker = null;
-let isOcrReady = false;
+
+
 let isProcessing = false;
 let captureGeneration = 0;
 let selectionRect = null;
@@ -404,21 +386,23 @@ if (upscaleSlider) {
 
 // Step 2: Wire EngineManager (passive listener)
 EngineManager.onStatusChange(({ state, text }) => {
+    const ocrStatus = document.getElementById('ocr-status');
     if (!ocrStatus) return;
     ocrStatus.className = `status-pill ${state}`;
     if (text) ocrStatus.textContent = text;
 });
 
 function setOCRStatus(state, text) {
-    if (!ocrStatus) return;
-
     // Step 4: Forward status to EngineManager
     if (window.EngineManager && typeof EngineManager._notifyStatus === 'function') {
         EngineManager._notifyStatus(state, text);
     }
 
-    // Determine if the current engine is technically ready
-    const isEngineReady = (window.currentEngine && window.currentEngine.isLoaded === true);
+    const ocrStatus = document.getElementById('ocr-status');
+    if (!ocrStatus) return;
+
+
+
 
     // PRIORITY LOGIC:
     // Only force the generic "READY" green status if the specific state requested is 'ready'.
@@ -426,55 +410,15 @@ function setOCRStatus(state, text) {
     // to override the generic ready state even if the instance is technically loaded.
     if (state === 'ready') {
         ocrStatus.className = 'status-pill ready';
-        ocrStatus.textContent = text || `🟢 ${window.currentEngineId?.toUpperCase() || 'OCR'} READY`;
+        ocrStatus.textContent = text || `🟢 ${EngineManager.getInfo().id?.toUpperCase() || 'OCR'} READY`;
     } else {
         ocrStatus.className = `status-pill ${state}`;
         ocrStatus.textContent = text;
     }
 }
 
-async function ensureModelLoaded(requestedAlias) {
-    if (ocrWorker && currentModelAlias === requestedAlias) return;
-    setOCRStatus('loading', `🟡 Loading ${requestedAlias}...`);
-    isOcrReady = false;
-    if (ocrWorker) { await ocrWorker.terminate(); ocrWorker = null; }
-    try {
-        let langPath = 'https://tessdata.projectnaptha.com/4.0.0/';
-        let useGzip = true;
-        let actualLang = 'jpn';
-        if (requestedAlias === 'jpn_best') {
-            langPath = 'https://cdn.jsdelivr.net/gh/tesseract-ocr/tessdata_best@4.0.0/';
-            useGzip = false;
-        } else if (requestedAlias === 'jpn_fast') {
-            langPath = 'https://cdn.jsdelivr.net/gh/tesseract-ocr/tessdata_fast@4.0.0/';
-            useGzip = false;
-        } else if (requestedAlias === 'jpn_vert') actualLang = 'jpn_vert';
-
-        ocrWorker = await Tesseract.createWorker(actualLang, 1, {
-            langPath: langPath,
-            gzip: useGzip,
-            logger: m => {
-                if (m.status === 'loading language traineddata') {
-                    const pct = Math.round(m.progress * 100);
-                    setOCRStatus('loading', `🟡 Data ${pct}%`);
-                }
-            }
-        });
-        currentModelAlias = requestedAlias;
-        isOcrReady = true;
-        // Tesseract-specific: optimize for VN text blocks
-        await ocrWorker.setParameters({
-            tessedit_pageseg_mode: '6'
-        });
-        setOCRStatus('ready', '🟢 OCR Ready');
-    } catch (e) {
-        setOCRStatus('error', '🔴 Load Error');
-    }
-}
-
 async function initOCR() {
     // Since #model-selector now handles engines, we default Tesseract to 'jpn_best'
-    await ensureModelLoaded('jpn_best');
 }
 
 function sliceImageIntoLines(canvas, lineCount) {
@@ -566,7 +510,9 @@ async function preprocessForEngine(engineId, rawCanvas, mode, lineCount) {
     const normalized = engineId.replace(/_.+$/, "");
 
     if (!EngineManager.isReady()) {
+        
         console.debug("[ENGINE-DEBUG] preprocess waiting on engineReadyPromise");
+        
         if (engineReadyPromise) await engineReadyPromise;
     }
 
@@ -1004,8 +950,11 @@ async function captureFrame(rect) {
     if (getSetting('debug')) console.log(`[VN-OCR] Crop Source: sx=${cx_}, sy=${cy_}, sw=${cw_}, sh=${ch_}`);
 
     if (!EngineManager.isReady()) {
+        
         console.warn("[ENGINE-DEBUG] captureFrame: currentEngine is null, waiting on engineReadyPromise");
+        
         if (engineReadyPromise) {
+            
             await engineReadyPromise;
         }
     }
@@ -1025,31 +974,13 @@ async function captureFrame(rect) {
         const canvases = await preprocessForEngine(EngineManager.getInfo().id, rawCropCanvas, mode, lineCount);
         console.log("[SLICE-DEBUG] total slices:", canvases.length);
 
-        // 1. Specialized Dispatcher: Advanced Legacy Tesseract Modes
-        if (engine === 'tesseract' && (mode === 'multi' || mode === 'last_resort')) {
-            await ensureModelLoaded('jpn_best');
-            let result;
-            if (mode === 'multi') {
-                result = await runMultiPassOCR(canvases[0], myGen);
-            } else {
-                result = await runLastResortOCR(canvases[0], myGen);
-            }
-            if (captureGeneration !== myGen) return;
-            updateDebugThumb(result.canvas);
-            addOCRResultToUI(result.text);
-            setOCRStatus('ready', '🟢 OCR Complete');
-            return;
-        }
+
 
         // 2. Initialization & Readiness Check
-        if (engine === 'tesseract') {
-            await ensureModelLoaded('jpn_best');
-            setOCRStatus('processing', '🟡 Reading...');
-        }
+
 
         // 3. Unified Inference Loop (Polymorphic)
         let finalText = '';
-        console.log("[ENGINE-DEBUG] currentEngine object:", currentEngine);
         console.log("[ENGINE-DEBUG] currentEngine ID:", EngineManager.getInfo().id);
         console.log("[ENGINE-DEBUG] currentEngine.isReady (before recognize):", EngineManager.isReady());
         console.log("[ENGINE-DEBUG] currentEngine.isLoaded (before recognize):", EngineManager.isReady());
@@ -1302,82 +1233,6 @@ function lr_addPadding(canvas, pad) {
     return res;
 }
 
-function lr_isolateTextbox(canvas) {
-    const ctx = canvas.getContext('2d');
-    const w = canvas.width, h = canvas.height;
-    if (h < 100) return canvas;
-    const id = ctx.getImageData(0, 0, w, h);
-    const d = id.data;
-    const projection = new Float32Array(h);
-    for (let y = 1; y < h - 1; y++) {
-        let sum = 0;
-        for (let x = 1; x < w - 1; x++) {
-            const idx = (y * w + x) * 4;
-            sum += Math.abs(d[idx] - d[idx + 4]) + Math.abs(d[idx] - d[idx + w * 4]);
-        }
-        projection[y] = sum / w;
-    }
-    let bestBand = { start: 0, end: h, avg: 0 };
-    const bandH = Math.floor(h * 0.25);
-    for (let y = 0; y < h - bandH; y++) {
-        let sum = 0; for (let i = 0; i < bandH; i++) sum += projection[y + i];
-        const avg = sum / bandH;
-        if (avg > bestBand.avg) bestBand = { start: y, end: y + bandH, avg: avg };
-    }
-    if (bestBand.avg < 10) return canvas;
-    const padTop = 20;
-    const padBottom = 80;
-    const start = Math.max(0, bestBand.start - padTop);
-    const end = Math.min(h, bestBand.end + padBottom);
-    const res = document.createElement('canvas'); res.width = w; res.height = end - start;
-    res.getContext('2d').drawImage(canvas, 0, start, w, end - start, 0, 0, w, end - start);
-    return res;
-}
-
-function lr_reconstructStrokes(canvas) {
-    const ctx = canvas.getContext('2d');
-    const w = canvas.width, h = canvas.height;
-    const id = ctx.getImageData(0, 0, w, h);
-    const d = id.data;
-    const edges = new Float32Array(w * h);
-    const kx = [-1, 0, 1, -2, 0, 2, -1, 0, 1], ky = [-1, -2, -1, 0, 0, 0, 1, 2, 1];
-    for (let y = 1; y < h - 1; y++) {
-        for (let x = 1; x < w - 1; x++) {
-            let gx = 0, gy = 0;
-            for (let i = -1; i <= 1; i++) {
-                for (let j = -1; j <= 1; j++) {
-                    const v = (d[((y + i) * w + (x + j)) * 4] + d[((y + i) * w + (x + j)) * 4 + 1] + d[((y + i) * w + (x + j)) * 4 + 2]) / 3;
-                    gx += v * kx[(i + 1) * 3 + (j + 1)]; gy += v * ky[(i + 1) * 3 + (j + 1)];
-                }
-            }
-            edges[y * w + x] = Math.sqrt(gx * gx + gy * gy);
-        }
-    }
-    const dilated = new Float32Array(w * h);
-    for (let y = 1; y < h - 1; y++) {
-        for (let x = 1; x < w - 1; x++) {
-            let m = 0;
-            for (let iy = -1; iy <= 1; iy++) {
-                for (let ix = -1; ix <= 1; ix++) {
-                    const v = edges[(y + iy) * w + (x + ix)];
-                    if (v > m) m = v;
-                }
-            }
-            dilated[y * w + x] = m;
-        }
-    }
-    const out = ctx.createImageData(w, h);
-    for (let i = 0; i < w * h; i++) {
-        const g = (d[i * 4] + d[i * 4 + 1] + d[i * 4 + 2]) / 3;
-        const v = Math.min(255, (g * 0.6) + (dilated[i] * 0.4));
-        out.data[i * 4] = out.data[i * 4 + 1] = out.data[i * 4 + 2] = v;
-        out.data[i * 4 + 3] = 255;
-    }
-    const res = document.createElement('canvas'); res.width = w; res.height = h;
-    res.getContext('2d').putImageData(out, 0, 0);
-    return res;
-}
-
 /** Returns new canvas. Applies 3x3 median filter per channel. */
 function medianFilter(canvas) {
     const ctx = canvas.getContext('2d');
@@ -1470,84 +1325,9 @@ function sharpenCanvas(canvas) {
 }
 
 // Pipelines
-async function runLastResortOCR(cropCanvas, gen) {
-    setOCRStatus('processing', '⚡ Isolating Textbox...');
-    const textbox = lr_isolateTextbox(cropCanvas);
 
-    const padded = lr_addPadding(textbox, 1);
-    setOCRStatus('processing', '⚡ Reconstructing Strokes...');
-    const base = lr_reconstructStrokes(lr_upscale(padded, 2));
 
-    const passes = [];
-    const cancelled = () => captureGeneration !== gen;
-    const run = async (c, lbl) => { if (cancelled()) return; setOCRStatus('processing', lbl); const r = await runTesseract(c); r.canvas = c; passes.push(r); };
 
-    await run(base, '⚡ Last Resort (1/7)...');
-    await run(lr_upscale(base, 2), '⚡ Last Resort (2/7)...');
-    await run(applyPreprocessing(base, 'grayscale'), '⚡ Last Resort (3/7)...');
-    await run(applyPreprocessing(lr_upscale(lr_isolateTextbox(cropCanvas), 2), 'adaptive'), '⚡ Last Resort (4/7)...');
-    await run(applyPreprocessing(base, 'adaptive'), '⚡ Last Resort (5/7)...');
-    await run(applyPreprocessing(base, 'binarize'), '⚡ Last Resort (6/7)...');
-    await run(applyPreprocessing(lr_upscale(base, 2), 'adaptive'), '⚡ Last Resort (7/7)...');
-
-    const result = passes.length > 0 ? fuseOCRResults(passes) : { text: '', canvas: base };
-    result.canvas = base;
-    return result;
-}
-
-async function runMultiPassOCR(crop, gen) {
-    const passes = [];
-    const cancelled = () => captureGeneration !== gen;
-    const run = async (c, lbl) => { if (cancelled()) return; setOCRStatus('processing', lbl); const r = await runTesseract(c); r.canvas = c; passes.push(r); };
-    const upscaled = lr_upscale(crop, 2);
-    await run(crop, '🔥 Multi-Pass (1/5)...');
-    await run(upscaled, '🔥 Multi-Pass (2/5)...');
-    await run(applyPreprocessing(upscaled, 'grayscale'), '🔥 Multi-Pass (3/5)...');
-    await run(applyPreprocessing(upscaled, 'binarize'), '🔥 Multi-Pass (4/5)...');
-    await run(applyPreprocessing(upscaled, 'adaptive'), '🔥 Multi-Pass (5/5)...');
-    const result = passes.length > 0 ? fuseOCRResults(passes) : { text: '', canvas: crop };
-    return result;
-}
-
-function fuseOCRResults(results) {
-    const jaRegex = /[\u3000-\u303f\u3040-\u309f\u30a0-\u30ff\uff00-\uff9f\u4e00-\u9faf\u3400-\u4dbf]/g;
-    // Scoring rationale:
-    // - confidence: Tesseract's self-reported quality (0-100)
-    // - jaDensity: ratio of Japanese Unicode chars to total chars
-    //   Higher density = more likely to be real Japanese text vs noise
-    // - +0.1 bias: prevents zero-score for results with some Japanese
-    // - 2x bonus when jaDensity > 0.3: rewards predominantly Japanese results
-    // - 0.5x penalty below 0.3: deprioritizes noisy results
-    // These thresholds were hand-tuned. Future: validate against labeled dataset.
-    const scored = results.map(r => {
-        const text = (r.text || "").replace(/\s+/g, '').trim();
-        if (!text) return { text: "", score: -1, canvas: r.canvas };
-        const jaMatches = text.match(jaRegex) || [];
-        const jaDensity = jaMatches.length / text.length;
-        const score = (r.confidence || 0) * (jaDensity + 0.1) * (jaDensity > 0.3 ? 2 : 0.5);
-        return { text, score, canvas: r.canvas };
-    }).filter(r => r.score > 0);
-    if (scored.length === 0) return { text: "", canvas: results[0].canvas };
-    scored.sort((a, b) => b.score - a.score || b.text.length - a.text.length);
-    return scored[0];
-}
-
-async function runTesseract(canvas, options = {}) {
-    const result = await EngineManager.runOCR(canvas, {
-        ...options,
-        engine: 'tesseract',
-    });
-
-    // Defensive normalization: modular engines might not return confidence
-    if (!result || typeof result !== 'object') {
-        return { text: '', confidence: 0 };
-    }
-
-    return {
-        text: result.text || '',
-        confidence: typeof result.confidence === 'number' ? result.confidence : 0,
-    };
-}
 
 function addOCRResultToUI(text) {
     const clean = text.replace(/\s+/g, '').trim(); if (!clean) return;
