@@ -17,6 +17,7 @@ const defaultSettings = {
     previewVisible: false,
     debug: false,
     paddleLineCount: 3,
+    textAreaSize: "standard",      // "small", "standard", "large"
     textSize: "standard",          // "small", "standard", "large"
     upscaleFactor: 2.0
 };
