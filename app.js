@@ -1557,6 +1557,9 @@ document.getElementById('paddle-continue')?.addEventListener('click', async () =
     const count = getSetting('paddleLineCount') || 3;
     engineSelector.value = `paddle_${count}`;
     
+    // THE FIX: Persist the engine setting immediately so it isn't lost on the next UI sync
+    setSetting('ocrEngine', 'paddle');
+    
     await switchEngineModular(`paddle_${count}`);
 
     document.getElementById('paddle-modal').classList.remove('active');
@@ -1837,7 +1840,7 @@ globalInitialize();
 
 /** Public API Namespace (Auditability Phase) */
 window.VNOCR = {
-    version: '2.1.0',
+    version: '2.1.1',
     isReady: EngineManager.isReady,
     drawSelectionRect: window.drawSelectionRect,
     captureFrame: window.captureFrame,
