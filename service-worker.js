@@ -1,7 +1,7 @@
 // === VERSION — Update CACHE_NAME on every release ===
 // This is the ONLY version string in the project.
 // Serve this file with Cache-Control: no-cache in production.
-const CACHE_NAME = 'vn-ocr-cache-v1.3.3-gold';
+const CACHE_NAME = 'vn-ocr-cache-v2.0.0';
 const ASSETS = [
     './',
     './index.html',
