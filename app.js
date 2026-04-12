@@ -1,5 +1,5 @@
 /*
-  VN‑OCR HARDENING PHASE:
+  PERSONAL OCR HARDENING PHASE:
   DO NOT MODIFY the following functions during patches:
     - captureFrame
     - switchEngine
@@ -11,7 +11,7 @@
 */
 
 /**
- * VN‑OCR ARCHITECTURE OVERVIEW:
+ * PERSONAL OCR ARCHITECTURE OVERVIEW:
  * -----------------------------------------
  * This application operates a dual-engine OCR pipeline:
  * 1. Tesseract Engine: Standard LSTM-based OCR. Accessible via 'Image Processing Modes' 
@@ -1452,10 +1452,25 @@ if (clearHistoryBtn) {
 if (refreshOcrBtn) refreshOcrBtn.onclick = () => { if (selectionRect) captureFrame(selectionRect); };
 if (autoCaptureBtn) autoCaptureBtn.onclick = () => autoToggle?.click();
 
+function openUserGuide() {
+    const helpModal = document.getElementById('help-modal');
+    if (helpModal) {
+        helpModal.classList.add('active');
+    }
+}
+
 function initHelpModal() {
-    const helpBtn = document.getElementById('help-btn'), helpModal = document.getElementById('help-modal'), helpClose = document.getElementById('help-close');
+    const helpBtn = document.getElementById('help-btn'), 
+          helpModal = document.getElementById('help-modal'), 
+          helpClose = document.getElementById('help-close');
+    
     if (!helpBtn || !helpModal) return;
-    helpBtn.onclick = (e) => { e.stopPropagation(); helpModal.classList.add('active'); };
+    
+    helpBtn.onclick = (e) => { 
+        e.stopPropagation(); 
+        openUserGuide(); 
+    };
+    
     if (helpClose) helpClose.onclick = () => helpModal.classList.remove('active');
     window.addEventListener('click', (e) => { if (e.target === helpModal) helpModal.classList.remove('active'); });
     window.addEventListener('keydown', (e) => { if (e.key === 'Escape') helpModal.classList.remove('active'); });
@@ -1789,6 +1804,17 @@ globalInitialize();
     if (menuInstall) menuInstall.onclick = () => {
         const it = document.getElementById('install-btn');
         if (it) it.click();
+        closeMenu();
+    };
+
+    if (menuGuide) menuGuide.onclick = () => {
+        console.debug("[MENU] Opening User Guide...");
+        if (typeof openUserGuide === "function") {
+            openUserGuide();
+        } else {
+            const hb = document.getElementById('help-btn');
+            if (hb) hb.click();
+        }
         closeMenu();
     };
 

@@ -1,6 +1,6 @@
-# VN OCR — Public Version ⚡
+# Personal OCR — Public Version ⚡
 
-Free, browser-only Japanese OCR for Visual Novels. No install, no backend, works anywhere.
+Free, browser-only Japanese OCR for Japanese Media. No install, no backend, works anywhere.
 
 ## Features
 - **Transformers.js ONNX Integration** — Native in-browser inference for advanced neural networks.

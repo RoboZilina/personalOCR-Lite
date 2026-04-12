@@ -1,7 +1,7 @@
 {
-  "name": "VN OCR",
-  "short_name": "VN OCR",
-  "description": "Browser-based Japanese OCR for Visual Novels",
+  "name": "Personal OCR",
+  "short_name": "Personal OCR",
+  "description": "Browser-based Japanese OCR for Japanese Media",
   "start_url": "./",
   "scope": "./",
   "id": "vn-ocr-public",
