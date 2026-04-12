@@ -565,7 +565,7 @@ function applyPaddlePreprocessing(cropCanvas, lineCount) {
 async function preprocessForEngine(engineId, rawCanvas, mode, lineCount) {
     const normalized = engineId.replace(/_.+$/, "");
 
-    if (!currentEngine || !currentEngine.isLoaded) {
+    if (!EngineManager.isReady()) {
         console.debug("[ENGINE-DEBUG] preprocess waiting on engineReadyPromise");
         if (engineReadyPromise) await engineReadyPromise;
     }
@@ -1003,7 +1003,7 @@ async function captureFrame(rect) {
     // 6. Logging for verification
     if (getSetting('debug')) console.log(`[VN-OCR] Crop Source: sx=${cx_}, sy=${cy_}, sw=${cw_}, sh=${ch_}`);
 
-    if (!currentEngine) {
+    if (!EngineManager.isReady()) {
         console.warn("[ENGINE-DEBUG] captureFrame: currentEngine is null, waiting on engineReadyPromise");
         if (engineReadyPromise) {
             await engineReadyPromise;
@@ -1021,8 +1021,8 @@ async function captureFrame(rect) {
 
     try {
         const lineCount = getSetting('paddleLineCount') || 1;
-        console.debug("[ENGINE-DEBUG] captureFrame: preprocessing for engine:", currentEngineId);
-        const canvases = await preprocessForEngine(currentEngineId, rawCropCanvas, mode, lineCount);
+        console.debug("[ENGINE-DEBUG] captureFrame: preprocessing for engine:", EngineManager.getInfo().id);
+        const canvases = await preprocessForEngine(EngineManager.getInfo().id, rawCropCanvas, mode, lineCount);
         console.log("[SLICE-DEBUG] total slices:", canvases.length);
 
         // 1. Specialized Dispatcher: Advanced Legacy Tesseract Modes
@@ -1050,9 +1050,9 @@ async function captureFrame(rect) {
         // 3. Unified Inference Loop (Polymorphic)
         let finalText = '';
         console.log("[ENGINE-DEBUG] currentEngine object:", currentEngine);
-        console.log("[ENGINE-DEBUG] currentEngine ID:", currentEngine.id);
-        console.log("[ENGINE-DEBUG] currentEngine.isReady (before recognize):", currentEngine?.isReady);
-        console.log("[ENGINE-DEBUG] currentEngine.isLoaded (before recognize):", currentEngine?.isLoaded);
+        console.log("[ENGINE-DEBUG] currentEngine ID:", EngineManager.getInfo().id);
+        console.log("[ENGINE-DEBUG] currentEngine.isReady (before recognize):", EngineManager.isReady());
+        console.log("[ENGINE-DEBUG] currentEngine.isLoaded (before recognize):", EngineManager.isReady());
         for (let i = 0; i < canvases.length; i++) {
             if (engine === 'paddle' && canvases.length > 1) {
                 console.log(`Paddle Slice ${i + 1}/${canvases.length}`);
@@ -1104,7 +1104,7 @@ async function captureFrame(rect) {
         setTimeout(() => {
             isProcessing = false;
             const engine = engineSelector.value;
-            if (engine.startsWith('paddle') && currentEngine?.id === 'paddle' && currentEngine?.isLoaded) {
+            if (engine.startsWith('paddle') && EngineManager.getInfo().id === 'paddle' && EngineManager.isReady()) {
                 setOCRStatus('ready', '🟢 PaddleOCR Ready');
             } else if (EngineManager.isReady() && engine === 'tesseract') {
                 setOCRStatus('ready', '🟢 OCR Ready');
@@ -1532,13 +1532,21 @@ function fuseOCRResults(results) {
     return scored[0];
 }
 
-async function runTesseract(canvas) {
-    if (!isOcrReady || !ocrWorker) return { text: "", confidence: 0 };
-    try {
-        const { data: { text, confidence } } = await ocrWorker.recognize(canvas);
-        return { text: text || "", confidence: confidence || 0 };
+async function runTesseract(canvas, options = {}) {
+    const result = await EngineManager.runOCR(canvas, {
+        ...options,
+        engine: 'tesseract',
+    });
+
+    // Defensive normalization: modular engines might not return confidence
+    if (!result || typeof result !== 'object') {
+        return { text: '', confidence: 0 };
     }
-    catch (e) { return { text: "", confidence: 0 }; }
+
+    return {
+        text: result.text || '',
+        confidence: typeof result.confidence === 'number' ? result.confidence : 0,
+    };
 }
 
 function addOCRResultToUI(text) {
@@ -1967,7 +1975,7 @@ globalInitialize();
 /** Public API Namespace (Auditability Phase) */
 window.VNOCR = {
     version: '1.3.3-gold',
-    isReady: isEngineReady,
+    isReady: EngineManager.isReady,
     drawSelectionRect: window.drawSelectionRect,
     captureFrame: window.captureFrame,
     switchEngine: window.switchEngine
