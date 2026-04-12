@@ -1557,6 +1557,9 @@ document.getElementById('paddle-continue')?.addEventListener('click', async () =
     const count = getSetting('paddleLineCount') || 3;
     engineSelector.value = `paddle_${count}`;
     
+    // THE FIX: Persist the engine setting immediately so it isn't lost on the next UI sync
+    setSetting('ocrEngine', 'paddle');
+    
     await switchEngineModular(`paddle_${count}`);
 
     document.getElementById('paddle-modal').classList.remove('active');
