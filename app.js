@@ -75,7 +75,12 @@ modeSelector.disabled = (engineSelector.value !== 'tesseract');
 const engines = {
     tesseract: {
         factory: (deps) => new TesseractEngine({ reportStatus: deps.reportStatus }),
-        supportsModes: true
+        supportsModes: true,
+        preprocess: async (canvas, mode) => applyTesseractPreprocessing(canvas, mode),
+        postprocess: (results) => results.join(' ').trim(),
+        handleError: (error) => { console.error(error); return "[Tesseract Error]"; },
+        isMultiLine: false,
+        readyStatus: '🟢 OCR Ready'
     },
     paddle: {
         factory: (deps) => new PaddleOCR(
@@ -83,12 +88,22 @@ const engines = {
             './js/onnx/',
             { reportStatus: deps.reportStatus }
         ),
-        supportsModes: false
+        supportsModes: false,
+        preprocess: async (canvas, mode, lineCount) => applyPaddlePreprocessing(canvas, lineCount),
+        postprocess: (results) => results.join('\n').trim(),
+        handleError: (error) => { console.error(error); return "[PaddleOCR Error]"; },
+        isMultiLine: true,
+        readyStatus: '🟢 PaddleOCR Ready'
     },
     manga: {
         id: "manga",
         factory: (deps) => new MangaOCREngine({ reportStatus: deps.reportStatus }),
-        supportsModes: false
+        supportsModes: false,
+        preprocess: async (canvas) => [canvas],
+        postprocess: (results) => results.join('').trim(),
+        handleError: (error) => { console.error(error); return "[MangaOCR Error]"; },
+        isMultiLine: false,
+        readyStatus: '🟢 MangaOCR Ready'
     }
 };
 
@@ -109,6 +124,7 @@ const EngineManager = (() => {
 
     // Status listeners (UI will subscribe later)
     const statusListeners = new Set();
+    const listeners = { ready: [], loading: [], error: [] };
     let isReady = false;
 
     // Subscribe to status updates
@@ -117,9 +133,20 @@ const EngineManager = (() => {
         return () => statusListeners.delete(listener);
     }
 
+    function emit(type, payload) {
+        if (listeners[type]) {
+            listeners[type].forEach(fn => fn(payload));
+        }
+    }
+
     // Notify all listeners
     function notifyStatus(state, text) {
         engineState = state;
+        
+        if (state === 'ready') emit('ready', text);
+        if (state === 'loading') emit('loading', text);
+        if (state === 'error') emit('error', text);
+
         for (const fn of statusListeners) {
             try { fn({ state, text, engineId: currentEngineId }); } catch {}
         }
@@ -142,7 +169,10 @@ const EngineManager = (() => {
         currentInfo = {
             id: currentEngineId,
             label: currentLabel,
-            capabilities: currentCapabilities
+            capabilities: {
+                ...currentCapabilities,
+                isMultiLine: registryEntry.isMultiLine || false
+            }
         };
         notifyStatus('loading', `🟡 Initializing ${currentLabel?.toUpperCase() || 'UNKNOWN'}...`);
 
@@ -176,16 +206,13 @@ const EngineManager = (() => {
         currentEngineId = null;
         currentLabel = null;
         currentCapabilities = {};
-        currentInfo = {};
+        currentInfo = { capabilities: {} };
         isReady = false;
         notifyStatus('idle', 'Engine Disposed');
     }
 
     
-    function _syncEngine(engine, id) {
-        currentEngine = engine;
-        currentEngineId = id;
-    }
+
 
     // Unified OCR entry point
     async function runOCR(canvas, options = {}) {
@@ -198,7 +225,6 @@ const EngineManager = (() => {
         try {
             notifyStatus('processing', 'Processing...');
             const result = await engine.recognize(canvas, options);
-            notifyStatus('ready', 'Done');
             return result;
         } catch (err) {
             notifyStatus('error', 'OCR failed');
@@ -206,34 +232,69 @@ const EngineManager = (() => {
         }
     }
 
-    // Public state getter
-    function getState() {
-        return {
-            engineId: currentEngineId,
-            engineState,
-            isReady: engineState === 'ready',
-            hasEngine: !!currentEngine,
-        };
+
+
+    // Unified preprocessing entry point
+    async function preprocess(canvas, mode, lineCount) {
+        const id = currentEngineId;
+        const entry = engines[id];
+        if (entry && typeof entry.preprocess === 'function') {
+            return await entry.preprocess(canvas, mode, lineCount);
+        }
+        return [canvas];
+    }
+
+    // Unified post-processing entry point
+    function postprocess(results) {
+        const id = currentEngineId;
+        const entry = engines[id];
+        if (entry && typeof entry.postprocess === 'function') {
+            return entry.postprocess(results);
+        }
+        return results.join(' ').trim();
+    }
+
+    function getReadyStatus() {
+        const id = currentEngineId;
+        const entry = engines[id];
+        return entry?.readyStatus || '🟢 OCR Ready';
+    }
+
+    function handleError(error) {
+        const id = currentEngineId;
+        const entry = engines[id];
+        if (entry && typeof entry.handleError === 'function') {
+            return entry.handleError(error);
+        }
+        console.error("Unhandleable error:", error);
+        return "[OCR Error]";
+    }
+
+    function emitError(error) {
+        notifyStatus("error", error);
     }
 
     return {
+        // Lifecycle
         switchEngine,
         runOCR,
-        onStatusChange,
-        getState,
+        // Preprocessing / Post-processing
+        preprocess,
+        postprocess,
+        // Error handling
+        handleError,
+        emitError,
+        // State
         isReady: () => isReady,
-        getLabel: () => currentLabel,
-        getCapabilities: () => currentCapabilities,
         getInfo: () => currentInfo,
-        // Temporary bridge for legacy code (removed later)
-        
-        _getCurrentEngine: () => currentEngine,
-        
-        _syncEngine,
-        
+        getReadyStatus,
+        // Events
+        onStatusChange,
+        onReady(fn) { listeners.ready.push(fn); },
+        onLoading(fn) { listeners.loading.push(fn); },
+        onError(fn) { listeners.error.push(fn); },
+        // Internal notifier (used by setOCRStatus bridge only)
         _notifyStatus: notifyStatus,
-        loadEngine,
-        disposeEngine,
     };
 
 })();
@@ -242,14 +303,7 @@ const EngineManager = (() => {
 window.EngineManager = EngineManager;
 
 
-/** Global reference to the currently active modular engine */
-let engineReadyPromise = null;
-
-// Expose read-only engine state for UI and diagnostics
-
-Object.defineProperty(window, "engineReadyPromise", {
-    get() { return engineReadyPromise; }
-});
+// Modular engine state handled by EngineManager events.
 
 /**
  * Modular engine switcher to replace legacy logic eventually.
@@ -293,20 +347,13 @@ async function switchEngineModular(id) {
         return;
     }
 
-    engineReadyPromise = EngineManager.switchEngine({
+    // Non-blocking engine load trigger
+    EngineManager.switchEngine({
         ...registryEntry,
         id: normalizedId
-    });
-
-    try {
-        const newEngine = await engineReadyPromise;
-
-        // Legacy sync
-        if (normalizedId === 'tesseract') {
-        }
-    } catch (err) {
+    }).catch(err => {
         console.error('Engine load error:', err);
-    }
+    });
 
     // 8) Restore UI state
     if (engineSelector) {
@@ -314,7 +361,7 @@ async function switchEngineModular(id) {
         engineSelector.disabled = false;
     }
     if (modeSelector) {
-        modeSelector.disabled = !EngineManager.getInfo().capabilities.supportsModes;
+        modeSelector.disabled = !registryEntry.supportsModes;
     }
 }
 
@@ -345,7 +392,7 @@ let videoStream = null;
 let isProcessing = false;
 let captureGeneration = 0;
 let selectionRect = null;
-let currentModelAlias = null;
+
 
 // Smart Scout: 32x32 Comparison Logic
 const scoutCanvas = document.createElement('canvas');
@@ -499,35 +546,20 @@ function applyPaddlePreprocessing(cropCanvas, lineCount) {
 }
 
 /**
- * Unified preprocessing helper to prepare canvases for OCR engines.
- * @param {string} engineId - 'tesseract' or 'paddle'
+ * Unified preprocessing entry point. Delegates to the active engine's preprocess function.
+ * @param {string} engineId - Active engine ID (used for debug logging only)
  * @param {HTMLCanvasElement} rawCanvas - The original crop
  * @param {string} mode - Preprocessing mode (adaptive, multi, etc.)
  * @param {number} lineCount - Number of lines (for Paddle)
  * @returns {HTMLCanvasElement[]} Array of one or more preprocessed canvases.
  */
 async function preprocessForEngine(engineId, rawCanvas, mode, lineCount) {
-    const normalized = engineId.replace(/_.+$/, "");
-
     if (!EngineManager.isReady()) {
-        
-        console.debug("[ENGINE-DEBUG] preprocess waiting on engineReadyPromise");
-        
-        if (engineReadyPromise) await engineReadyPromise;
+        console.debug("[ENGINE-DEBUG] preprocess skipping wait (event-driven logic)");
     }
 
-    console.debug("[ENGINE-DEBUG] preprocessForEngine() engine arg:", engineId);
-
-    if (normalized === "tesseract") {
-        return applyTesseractPreprocessing(rawCanvas, mode);
-    }
-
-    if (normalized === "paddle") {
-        return applyPaddlePreprocessing(rawCanvas, lineCount);
-    }
-
-    // Default handler:
-    return [rawCanvas];
+    console.debug("[ENGINE-DEBUG] preprocessForEngine() delegating to EngineManager");
+    return await EngineManager.preprocess(rawCanvas, mode, lineCount);
 }
 
 
@@ -949,68 +981,73 @@ async function captureFrame(rect) {
     // 6. Logging for verification
     if (getSetting('debug')) console.log(`[VN-OCR] Crop Source: sx=${cx_}, sy=${cy_}, sw=${cw_}, sh=${ch_}`);
 
-    if (!EngineManager.isReady()) {
-        
-        console.warn("[ENGINE-DEBUG] captureFrame: currentEngine is null, waiting on engineReadyPromise");
-        
-        if (engineReadyPromise) {
-            
-            await engineReadyPromise;
-        }
-    }
-
-    let engine = engineSelector.value;
-    console.log("[ENGINE-DEBUG] UI selected engine:", engineSelector.value);
+    EngineManager._notifyStatus('processing', '🟡 Processing...');
+    await new Promise(r => setTimeout(r, 0)); // yield to browser for repaint
     const mode = modeSelector.value;
-
-    // Normalize paddle variants
-    if (engine.startsWith('paddle_')) {
-        engine = 'paddle';
-    }
+    console.debug("[INFERENCE-DEBUG] captureFrame engine:", EngineManager.getInfo().id, "mode:", mode);
 
     try {
         const lineCount = getSetting('paddleLineCount') || 1;
-        console.debug("[ENGINE-DEBUG] captureFrame: preprocessing for engine:", EngineManager.getInfo().id);
         const canvases = await preprocessForEngine(EngineManager.getInfo().id, rawCropCanvas, mode, lineCount);
-        console.log("[SLICE-DEBUG] total slices:", canvases.length);
-
-
-
-        // 2. Initialization & Readiness Check
-
+        console.debug("[INFERENCE-DEBUG] total slices:", canvases.length);
 
         // 3. Unified Inference Loop (Polymorphic)
-        let finalText = '';
-        console.log("[ENGINE-DEBUG] currentEngine ID:", EngineManager.getInfo().id);
-        console.log("[ENGINE-DEBUG] currentEngine.isReady (before recognize):", EngineManager.isReady());
-        console.log("[ENGINE-DEBUG] currentEngine.isLoaded (before recognize):", EngineManager.isReady());
+        const ocrLines = [];
+        let totalConfidence = 0;
+        let confidenceCount = 0;
+
+        const engineInfo = EngineManager.getInfo();
+
         for (let i = 0; i < canvases.length; i++) {
-            if (engine === 'paddle' && canvases.length > 1) {
-                console.log(`Paddle Slice ${i + 1}/${canvases.length}`);
+            if (canvases.length > 1) {
+                console.debug(`[INFERENCE-DEBUG] processing slice ${i + 1}/${canvases.length}`);
             }
 
-            // Debug Thumbnail (Existing behavior: first slice only)
+            // Debug Thumbnail (Modularized via metadata)
             if (i === 0) {
-                if (engine === 'paddle') updateDebugThumb(rawCropCanvas);
+                if (engineInfo.capabilities.isMultiLine) updateDebugThumb(rawCropCanvas);
                 else updateDebugThumb(canvases[0]);
             }
 
             const clean = canvases[i];
             if (!clean.width || !clean.height) continue;
 
-            console.log("[SLICE-DEBUG] slice:", clean.width, "x", clean.height);
-            const { text } = await EngineManager.runOCR(clean);
-            if (text && text.trim()) {
-                finalText += text.trim() + (engine === 'paddle' ? '\n' : ' ');
+            console.debug("[INFERENCE-DEBUG] slice dimensions:", clean.width, "x", clean.height);
+            
+            try {
+                const result = await EngineManager.runOCR(clean);
+                const { text } = result;
+
+                // Extract Confidence (Engine-agnostic)
+                const confidence = result.confidence ?? null;
+                if (confidence !== null) {
+                    totalConfidence += confidence;
+                    confidenceCount++;
+                }
+
+                if (text && text.trim()) {
+                    ocrLines.push(text.trim());
+                }
+            } catch (error) {
+                const safeText = EngineManager.handleError(error);
+                ocrLines.push(safeText);
+                EngineManager.emitError(error);
             }
         }
 
         if (captureGeneration !== myGen) return;
-        finalText = finalText.trim();
+        
+        // Modular Post-processing
+        const finalText = EngineManager.postprocess(ocrLines);
+
+        const avgConfidence = confidenceCount > 0 ? (totalConfidence / confidenceCount) : null;
+        if (avgConfidence !== null) {
+            console.log("[ENGINE-DEBUG] average confidence:", avgConfidence);
+        }
 
         // 4. Unified UI Update
         if (finalText) {
-            addOCRResultToUI(finalText);
+            addOCRResultToUI(finalText, avgConfidence);
             setOCRStatus('ready', '🟢 OCR Complete');
             if (typeof updateLatestText === 'function') {
                 updateLatestText(finalText);
@@ -1027,18 +1064,15 @@ async function captureFrame(rect) {
             }
         });
     } catch (err) {
-        console.error("OCR Error:", err);
-        setOCRStatus('error', '🔴 OCR Error');
+        console.error("Frame-level OCR Error:", err);
+        EngineManager.emitError(err);
     }
     finally {
         // Small cooldown to prevent rapid-fire re-triggering
         setTimeout(() => {
             isProcessing = false;
-            const engine = engineSelector.value;
-            if (engine.startsWith('paddle') && EngineManager.getInfo().id === 'paddle' && EngineManager.isReady()) {
-                setOCRStatus('ready', '🟢 PaddleOCR Ready');
-            } else if (EngineManager.isReady() && engine === 'tesseract') {
-                setOCRStatus('ready', '🟢 OCR Ready');
+            if (EngineManager.isReady()) {
+                setOCRStatus('ready', EngineManager.getReadyStatus());
             }
         }, 100);
     }
@@ -1329,16 +1363,17 @@ function sharpenCanvas(canvas) {
 
 
 
-function addOCRResultToUI(text) {
+function addOCRResultToUI(text, confidence = null) {
+    const confStr = (confidence !== null) ? ` [${Math.round(confidence)}%]` : '';
     const clean = text.replace(/\s+/g, '').trim(); if (!clean) return;
-    if (latestText) latestText.textContent = clean;
+    if (latestText) latestText.textContent = clean + confStr;
 
     const item = document.createElement('p');
     item.className = 'history-item';
     item.setAttribute('lang', 'ja');
 
     const span = document.createElement('span');
-    span.textContent = clean;
+    span.textContent = clean + confStr;
     item.appendChild(span);
 
     const btnRow = document.createElement('div');
@@ -1592,7 +1627,6 @@ async function globalInitialize() {
 
     // 2. Trigger actual engine load
     await switchEngineModular(savedEngine);
-    if (engineReadyPromise) await engineReadyPromise;
 
     // 3. Post-load Mode Restoration (Deterministic)
     const savedMode = getSetting('ocrMode') || 'default_mini';
