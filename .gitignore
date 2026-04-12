@@ -1,0 +1,2 @@
+﻿models/manga/*.onnx
+models/manga/vocab.json

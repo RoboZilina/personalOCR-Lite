@@ -56,7 +56,7 @@ body {
 .header-left { display: flex; align-items: center; gap: 20px; }
 .header-right { display: flex; align-items: center; gap: 16px; }
 
-.brand { font-weight: 800; font-size: 18px; letter-spacing: -0.5px; }
+.brand { font-weight: 800; font-size: 18px; letter-spacing: -0.5px; white-space: nowrap; }
 .badge { 
     font-size: 10px; padding: 2px 8px; border-radius: 4px; 
     background: var(--accent-glow); color: var(--accent); 
@@ -64,7 +64,19 @@ body {
 }
 
 .divider { width: 1px; height: 24px; background: var(--border); }
-.controls-group { display: flex; gap: 12px; align-items: center; }
+.controls-group { display: flex; gap: var(--header-gap, 12px); align-items: center; }
+
+#manga-note {
+    display: none;
+    align-items: center;
+    gap: 4px;
+    color: #ff9800;
+    font-size: 11px;
+    font-weight: 700;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+#manga-note.visible { display: flex; }
 
 /* MAIN WORKSPACE */
 .app-main { flex: 1; display: grid; grid-template-columns: 1fr 340px; overflow: hidden; min-height: 0; }
@@ -109,6 +121,42 @@ body {
     text-align: center; max-width: 90%; line-height: 1.3; 
     text-shadow: 0 2px 10px rgba(0,0,0,0.5); user-select: text !important; 
     cursor: text; margin: 0; 
+}
+
+/* MANGA LAYOUT OVERRIDES (Side-by-side) */
+.app-main.manga-layout .main-workspace {
+    flex-direction: row;
+}
+
+.app-main.manga-layout .transcription-tray {
+    width: 500px;
+    height: 100%;
+    border-top: none;
+    border-left: 1px solid var(--border);
+}
+
+/* Treat Text Area Size as Panel Width in Manga mode */
+body.text-area-small .app-main.manga-layout .transcription-tray { width: 350px; }
+body.text-area-large .app-main.manga-layout .transcription-tray { width: 650px; }
+
+.app-main.manga-layout .tray-actions {
+    height: auto;
+    min-height: auto;
+    padding-bottom: 24px;
+}
+
+.app-main.manga-layout .latest-line-window {
+    height: auto;
+    align-items: flex-start;
+    padding-top: 32px;
+}
+
+.app-main.manga-layout .latest-text-content {
+    font-size: 1.5rem;
+}
+
+.app-main.manga-layout .debug-img {
+    display: none !important;
 }
 
 /* SIDEBAR */
@@ -242,7 +290,13 @@ body {
     z-index: 5000; transform: translateX(-100%); 
     transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); 
     display: flex; flex-direction: column; padding: 60px 20px 20px 20px;
+    overflow-y: auto; overflow-x: hidden;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
 }
+.side-menu::-webkit-scrollbar { width: 6px; }
+.side-menu::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+.side-menu::-webkit-scrollbar-track { background: transparent; }
 .side-menu.open { transform: translateX(0); }
 .menu-header { margin-bottom: 32px; border-bottom: 1px solid var(--border); padding-bottom: 12px; }
 .menu-header h3 { font-size: 14px; letter-spacing: 1px; color: var(--text-dim); text-transform: uppercase; }
@@ -254,6 +308,71 @@ body {
     margin-bottom: 8px; width: 100%;
 }
 .menu-item-btn:hover { background: rgba(255,255,255,0.05); border-color: var(--border); color: var(--accent); }
+.menu-item-btn.warning-text { color: #ff6b6b; }
+.menu-item-btn.warning-text:hover { color: #ff5252; border-color: #ff5252; }
+
+.menu-section {
+    margin-bottom: 12px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--border);
+}
+.menu-section h4 {
+    font-size: 13px;
+    color: var(--text-dim);
+    margin-bottom: 8px;
+    font-weight: 600;
+}
+.menu-options-row {
+    display: flex;
+    gap: 8px;
+}
+.menu-subitem-btn {
+    flex: 1;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    padding: 8px 0;
+    font-size: 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: 0.2s;
+    text-align: center;
+}
+.menu-subitem-btn:hover {
+    background: rgba(255,255,255,0.05);
+    color: var(--text);
+}
+.menu-subitem-btn.active {
+    background: var(--accent-glow);
+    border-color: var(--accent);
+    color: var(--accent);
+    font-weight: 700;
+}
+
+/* SIZE OVERRIDES */
+body.text-area-small .transcription-tray { height: 260px; min-height: 260px; }
+body.text-area-small .latest-line-window { height: 80px; min-height: 80px; }
+body.text-area-large .transcription-tray { height: 420px; min-height: 420px; }
+body.text-area-large .latest-line-window { height: 160px; min-height: 160px; }
+
+body.text-size-small .latest-text-content { font-size: 1.2rem; }
+body.text-size-large .latest-text-content { font-size: 2.4rem; }
+body.text-size-small .history-item { font-size: 12px; }
+body.text-size-large .history-item { font-size: 16px; }
+
+/* CAPTURE PREVIEW OVERRIDES */
+body.preview-hidden .debug-img { 
+    display: none !important; 
+}
+body.preview-hidden .tray-actions { 
+    height: auto; 
+    min-height: auto; 
+    padding-bottom: 24px;
+}
+body.preview-hidden .latest-line-window { 
+    height: auto !important; 
+    min-height: auto !important; 
+}
 
 .menu-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.5); backdrop-filter: blur(4px); z-index: 4000; display: none; opacity: 0; transition: opacity 0.3s; }
 .menu-backdrop.open { display: block; opacity: 1; }
@@ -298,6 +417,27 @@ body.light-theme .guide-card { background: #f1f5f9; border-color: #e2e8f0; }
     .header-left { gap: 12px; }
     .slider-group label { width: auto; font-size: 10px; }
     .slider-group input[type=range] { width: 80px; }
+}
+
+/* SMART HEADER COMPRESSION */
+@media (max-width: 1250px) {
+    :root { --header-gap: 8px; }
+    .app-header { padding: 0 16px 0 56px; }
+    .header-left { gap: 10px; }
+}
+
+@media (max-width: 1100px) {
+    .badge.public { display: none; }
+    .manga-note-text { display: none; }
+    .brand { font-size: 16px; }
+}
+
+@media (max-width: 950px) {
+    :root { --header-gap: 4px; }
+    .header-left { gap: 5px; }
+    #select-window-btn span { display: none; }
+    #select-window-btn:not(.stop)::after { content: "Source"; }
+    #ocr-status { font-size: 11px; padding: 4px 8px; }
 }
 
 @media (max-width: 768px) { .guide-grid { grid-template-columns: 1fr; } }

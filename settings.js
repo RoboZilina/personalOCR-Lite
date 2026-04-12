@@ -6,17 +6,32 @@
 const STORAGE_KEY = "vnocr_settings";
 
 const defaultSettings = {
+    ocrEngine: "tesseract",       // "tesseract", "paddle", etc.
     ocrMode: "default_mini",      // "default_mini", "adaptive", "paddle", etc.
     autoCapture: true,
     autoCopy: true,
     showHeavyWarning: true,
-    theme: "dark",
+    showMangaWarning: true,
+    theme: "auto",                // "auto", "dark", "light"
     historyVisible: true,
+    previewVisible: false,
     debug: false,
-    paddleLineCount: 3
+    paddleLineCount: 3,
+    textAreaSize: "standard",      // "small", "standard", "large"
+    textSize: "standard",          // "small", "standard", "large"
+    upscaleFactor: 2.0
 };
 
 let currentSettings = { ...defaultSettings };
+
+// Listen for system theme changes and re-apply if in "auto" mode
+if (window.matchMedia) {
+    window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', (e) => {
+        if (currentSettings.theme === 'auto') {
+            applySettingsToUI();
+        }
+    });
+}
 
 /**
  * Loads settings from localStorage with fallback to defaults.
@@ -90,14 +105,15 @@ export function applySettingsToUI() {
     }
 
     // 3. Theme Toggle
-    if (currentSettings.theme === 'light') {
+    let effectiveTheme = currentSettings.theme;
+    if (effectiveTheme === 'auto') {
+        effectiveTheme = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+    }
+
+    if (effectiveTheme === 'light') {
         document.body.classList.add('light-theme');
     } else {
         document.body.classList.remove('light-theme');
-    }
-    const themeBtn = document.querySelector("#menu-theme") || document.querySelector("#theme-toggle");
-    if (themeBtn) {
-        themeBtn.textContent = 'Toggle Theme';
     }
 
     // 4. History Visibility
@@ -106,10 +122,34 @@ export function applySettingsToUI() {
         root.classList.toggle('history-hidden', !currentSettings.historyVisible);
     }
 
+    // 4.5 Capture Preview Visibility
+    document.body.classList.toggle('preview-hidden', String(currentSettings.previewVisible) === 'false');
+
     // Note: showHeavyWarning is used for logic, not a direct UI element usually,
     // but we can bind it if a checkbox exists in a settings menu.
     const warningCheckbox = document.querySelector("#heavy-warning-checkbox");
     if (warningCheckbox) warningCheckbox.checked = !currentSettings.showHeavyWarning;
+
+    // 5. Size modifiers via body classes
+    document.body.classList.remove('text-area-small', 'text-area-standard', 'text-area-large');
+    document.body.classList.add(`text-area-${currentSettings.textAreaSize}`);
+
+    document.body.classList.remove('text-size-small', 'text-size-standard', 'text-size-large');
+    document.body.classList.add(`text-size-${currentSettings.textSize}`);
+
+    // 6. Upscale Slider
+    const upscaleSlider = document.querySelector("#upscale-slider");
+    const upscaleVal = document.querySelector("#upscale-val");
+    if (upscaleSlider) upscaleSlider.value = currentSettings.upscaleFactor;
+    if (upscaleVal) upscaleVal.textContent = parseFloat(currentSettings.upscaleFactor).toFixed(1);
+
+    // Update active highlight on menu buttons
+    document.querySelectorAll('.menu-subitem-btn[data-setting]').forEach(btn => {
+        const settingKey = btn.dataset.setting;
+        const val = btn.dataset.value;
+        const currentVal = currentSettings[settingKey];
+        btn.classList.toggle('active', String(currentVal) === val);
+    });
 }
 
 /**
@@ -129,4 +169,21 @@ export function applyUIToSettings() {
     // so they are handled directly via setSetting in their click handlers,
     // but we save the whole state here just in case.
     saveSettings(currentSettings);
+}
+
+/**
+ * Resets all settings to defaults, preserving current OCR Engine/Mode.
+ */
+export function resetSettings() {
+    const savedEngine = currentSettings.ocrEngine;
+    const savedMode = currentSettings.ocrMode;
+
+    currentSettings = { 
+        ...defaultSettings, 
+        ocrEngine: savedEngine,
+        ocrMode: savedMode
+    };
+
+    saveSettings(currentSettings);
+    applySettingsToUI();
 }

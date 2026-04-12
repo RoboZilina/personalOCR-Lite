@@ -2,20 +2,32 @@ import { fetchWithProgress, canvasToFloat32Tensor } from './paddle_core.js';
 
 export class PaddleOCR {
     constructor(manifestUrl, wasmBasePath, updateStatus) {
+        this.id = 'paddle';
+        this.label = 'PaddleOCR';
         this.manifestUrl = manifestUrl;
         this.wasmBasePath = wasmBasePath;
-        this.updateStatus = updateStatus;
+
+        // Support both legacy positional callback and modern options object
+        const options = (typeof updateStatus === 'object') ? updateStatus : { reportStatus: updateStatus };
+        this.reportStatus = options.reportStatus || (() => {});
+
         this.manifest = null;
         this.detSession = null;
         this.recSession = null;
         this.dict = [];
         this.normalize = { mean: [0.5, 0.5, 0.5], std: [0.5, 0.5, 0.5] };
         this.isLoaded = false;
+        this.initPromise = this.load();
+    }
+
+    /** Interface-compliant initialization */
+    async load() {
+        return await this.loadModels();
     }
 
     async loadModels() {
         try {
-            this.updateStatus('PaddleOCR: loading manifest…');
+            this.reportStatus('loading', '🟡 PaddleOCR: loading manifest…');
             const res = await fetch(this.manifestUrl);
             this.manifest = await res.json();
 
@@ -32,26 +44,26 @@ export class PaddleOCR {
             ort.env.wasm.simd = true;
 
             // Load detection model
-            this.updateStatus('PaddleOCR: loading detection model…');
+            this.reportStatus('loading', '🟡 PaddleOCR: loading detection model…');
             let detBuffer = await fetchWithProgress(
                 modelBase + this.manifest.det.path,
-                (p) => this.updateStatus(`PaddleOCR: Loading ${(p * 50).toFixed(0)}%`)
+                (p) => this.reportStatus('loading', `🟡 PaddleOCR: Loading ${(p * 50).toFixed(0)}%`)
             );
             this.detSession = await ort.InferenceSession.create(detBuffer);
             detBuffer = null; // Memory Guard: Release buffer immediately after session creation
             await new Promise(resolve => setTimeout(resolve, 50)); // Memory Guard: Yield to allow GC breathing room
 
             // Load recognition model
-            this.updateStatus('PaddleOCR: loading recognition model…');
+            this.reportStatus('loading', '🟡 PaddleOCR: loading recognition model…');
             let recBuffer = await fetchWithProgress(
                 modelBase + this.manifest.rec.path,
-                (p) => this.updateStatus(`PaddleOCR: Loading ${(50 + p * 50).toFixed(0)}%`)
+                (p) => this.reportStatus('loading', `🟡 PaddleOCR: Loading ${(50 + p * 50).toFixed(0)}%`)
             );
             this.recSession = await ort.InferenceSession.create(recBuffer);
             recBuffer = null; // Memory Guard: Release buffer
 
             // Load dictionary
-            this.updateStatus('PaddleOCR: loading dictionary…');
+            this.reportStatus('loading', '🟡 PaddleOCR: loading dictionary…');
             const dictRes = await fetch(modelBase + this.manifest.dict.path);
             const dictText = await dictRes.text();
             this.dict = dictText.split(/\r?\n/);
@@ -60,10 +72,10 @@ export class PaddleOCR {
             }
 
             this.isLoaded = true;
-            this.updateStatus('PaddleOCR: ready.');
+            this.reportStatus('ready', '🟢 PaddleOCR: ready.');
         } catch (err) {
             console.error("PaddleOCR: Load Error:", err);
-            this.updateStatus('PaddleOCR: Load Failed.');
+            this.reportStatus('error', '🔴 PaddleOCR: Load Failed.');
             throw err;
         }
     }
@@ -184,7 +196,7 @@ export class PaddleOCR {
     }
 
     async recognize(cropCanvas) {
-        if (!this.recSession) return '';
+        if (!this.recSession) return { text: '' };
 
         try {
 
@@ -192,7 +204,7 @@ export class PaddleOCR {
             const [h, w] = inputSize;
 
             const tensorData = canvasToFloat32Tensor(cropCanvas, inputSize, this.normalize);
-            if (!tensorData) return '';
+            if (!tensorData) return { text: '' };
             
             const inputTensor = new ort.Tensor('float32', tensorData, [1, 3, h, w]);
 
@@ -222,7 +234,7 @@ export class PaddleOCR {
             return text;
         } catch (err) {
             console.error("PaddleOCR: Recognition Error:", err);
-            return '';
+            return { text: '' };
         }
     }
 
@@ -262,15 +274,15 @@ export class PaddleOCR {
         }
     }
 
-    dispose() {
+    async dispose() {
         // Explicit Session Disposal (if supported)
         try {
             if (this.detSession) {
-                if (typeof this.detSession.release === 'function') this.detSession.release();
+                if (typeof this.detSession.release === 'function') await this.detSession.release();
                 else if (this.detSession.handler && typeof this.detSession.handler.dispose === 'function') this.detSession.handler.dispose();
             }
             if (this.recSession) {
-                if (typeof this.recSession.release === 'function') this.recSession.release();
+                if (typeof this.recSession.release === 'function') await this.recSession.release();
                 else if (this.recSession.handler && typeof this.recSession.handler.dispose === 'function') this.recSession.handler.dispose();
             }
         } catch (e) {

@@ -1,5 +1,5 @@
 /*
-  VN‑OCR HARDENING PHASE:
+  PERSONAL OCR HARDENING PHASE:
   DO NOT MODIFY the following functions during patches:
     - captureFrame
     - switchEngine
@@ -11,7 +11,7 @@
 */
 
 /**
- * VN‑OCR ARCHITECTURE OVERVIEW:
+ * PERSONAL OCR ARCHITECTURE OVERVIEW:
  * -----------------------------------------
  * This application operates a dual-engine OCR pipeline:
  * 1. Tesseract Engine: Standard LSTM-based OCR. Accessible via 'Image Processing Modes' 
@@ -21,7 +21,6 @@
  * 
  * STATE MANAGEMENT:
  * State is mirrored in the `state` object (Auditability Phase) and checked via the 
- * `isEngineReady` API. Logic currently reads primary state from DOM/Settings to 
  * maintain compatibility with the legacy baseline.
  */
 
@@ -30,34 +29,23 @@ import {
     getSetting,
     setSetting,
     applySettingsToUI,
-    applyUIToSettings
+    applyUIToSettings,
+    resetSettings
 } from './settings.js';
 
 import {
     runPaddleOCR
 } from './js/paddle/paddle_core.js';
 
+import { TesseractEngine } from './js/tesseract/tesseract_engine.js';
 import { PaddleOCR } from './js/paddle/paddle_engine.js';
-
-// Central State Mirror (Auditability Phase)
-const state = {
-    engine: null,
-    paddleLineCount: null,
-    mode: null,
-    ready: {
-        tesseract: false,
-        paddle: false
-    }
-};
+import { MangaOCREngine } from './js/manga/manga_engine.js';
 
 /** Unified Readiness API (Hardening Phase) */
-function isEngineReady(engine) {
-    if (engine === 'tesseract') return !!isOcrReady;
-    if (engine === 'paddle' || engine.startsWith('paddle_')) {
-        return !!(window.paddleProvider && window.paddleProvider.isLoaded);
-    }
-    return false;
-}
+
+
+
+// ==========================================
 
 // DOM Elements
 const selectWindowBtn = document.getElementById('select-window-btn');
@@ -71,7 +59,6 @@ const ocrStatus = document.getElementById('ocr-status');
 const refreshOcrBtn = document.getElementById('refresh-ocr-btn');
 const clearHistoryBtn = document.getElementById('clear-history-btn');
 const engineSelector = document.getElementById('model-selector');
-const panicBtn = document.getElementById('panic-btn');
 const modeSelector = document.getElementById('mode-selector');
 const autoToggle = document.getElementById('auto-capture-toggle');
 const autoCaptureBtn = document.getElementById('auto-capture-btn');
@@ -80,6 +67,303 @@ const upscaleVal = document.getElementById('upscale-val');
 
 // Phase 2: Lazy-load state initialization
 modeSelector.disabled = (engineSelector.value !== 'tesseract');
+
+// ==========================================
+// NEW: Modular Engine Registry (Roadmap Phase)
+// ==========================================
+
+const engines = {
+    tesseract: {
+        factory: (deps) => new TesseractEngine({ reportStatus: deps.reportStatus }),
+        supportsModes: true,
+        preprocess: async (canvas, mode) => applyTesseractPreprocessing(canvas, mode),
+        postprocess: (results) => results.join(' ').trim(),
+        handleError: (error) => { console.error(error); return "[Tesseract Error]"; },
+        isMultiLine: false,
+        readyStatus: '🟢 OCR Ready'
+    },
+    paddle: {
+        factory: (deps) => new PaddleOCR(
+            './models/paddle/manifest.json',
+            './js/onnx/',
+            { reportStatus: deps.reportStatus }
+        ),
+        supportsModes: false,
+        preprocess: async (canvas, mode, lineCount) => applyPaddlePreprocessing(canvas, lineCount),
+        postprocess: (results) => results.join('\n').trim(),
+        handleError: (error) => { console.error(error); return "[PaddleOCR Error]"; },
+        isMultiLine: true,
+        readyStatus: '🟢 PaddleOCR Ready'
+    },
+    manga: {
+        factory: (deps) => new MangaOCREngine({ reportStatus: deps.reportStatus }),
+        supportsModes: false,
+        preprocess: async (canvas) => [canvas],
+        postprocess: (results) => results.join('').trim(),
+        handleError: (error) => { console.error(error); return "[MangaOCR Error]"; },
+        isMultiLine: false,
+        readyStatus: '🟢 MangaOCR Ready'
+    }
+};
+
+// ============================
+// EngineManager (Singleton)
+// Central source of truth for engine lifecycle and identity.
+// ============================
+
+const EngineManager = (() => {
+
+    // Internal state placeholders
+    let currentEngine = null;
+    let currentEngineId = null;
+    let currentLabel = null;
+    let currentCapabilities = {};
+    let currentInfo = {};
+    let engineState = 'idle'; // 'idle' | 'loading' | 'ready' | 'processing' | 'error'
+
+    // Status listeners (UI will subscribe later)
+    const statusListeners = new Set();
+    const listeners = { ready: [], loading: [], error: [] };
+    let isReady = false;
+
+    // Subscribe to status updates
+    function onStatusChange(listener) {
+        statusListeners.add(listener);
+        return () => statusListeners.delete(listener);
+    }
+
+    function emit(type, payload) {
+        if (listeners[type]) {
+            listeners[type].forEach(fn => fn(payload));
+        }
+    }
+
+    // Notify all listeners
+    function notifyStatus(state, text) {
+        engineState = state;
+        
+        if (state === 'ready') emit('ready', text);
+        if (state === 'loading') emit('loading', text);
+        if (state === 'error') emit('error', text);
+
+        for (const fn of statusListeners) {
+            try { fn({ state, text, engineId: currentEngineId }); } catch {}
+        }
+    }
+
+    // Lifecycle: switching engines
+    async function switchEngine(registryEntry) {
+        await disposeEngine();
+        return await loadEngine(registryEntry);
+    }
+
+    async function loadEngine(registryEntry) {
+        currentEngineId = registryEntry.id || 'unknown';
+        currentLabel = registryEntry.id || null;
+        currentCapabilities = {
+            supportsModes: registryEntry.supportsModes || false,
+            supportsMultiPass: registryEntry.supportsMultiPass || false,
+            supportsLastResort: registryEntry.supportsLastResort || false
+        };
+        currentInfo = {
+            id: currentEngineId,
+            label: currentLabel,
+            capabilities: {
+                ...currentCapabilities,
+                isMultiLine: registryEntry.isMultiLine || false
+            }
+        };
+        notifyStatus('loading', `🟡 Initializing ${currentLabel?.toUpperCase() || 'UNKNOWN'}...`);
+
+        try {
+            const deps = { reportStatus: notifyStatus }; 
+            currentEngine = registryEntry.factory(deps);
+
+            if (currentEngine && typeof currentEngine.load === 'function') {
+                await currentEngine.load();
+            }
+
+            isReady = true;
+            notifyStatus('ready', `🟢 ${currentLabel?.toUpperCase() || 'OCR'} READY`);
+            return currentEngine;
+        } catch (err) {
+            isReady = false;
+            notifyStatus('error', '🔴 Load Failed');
+            throw err;
+        }
+    }
+
+    async function disposeEngine() {
+        if (currentEngine && typeof currentEngine.dispose === 'function') {
+            try {
+                await currentEngine.dispose();
+            } catch (err) {
+                console.error('Engine dispose error:', err);
+            }
+        }
+        currentEngine = null;
+        currentEngineId = null;
+        currentLabel = null;
+        currentCapabilities = {};
+        currentInfo = { capabilities: {} };
+        isReady = false;
+        notifyStatus('idle', 'Engine Disposed');
+    }
+
+    
+
+
+    // Unified OCR entry point
+    async function runOCR(canvas, options = {}) {
+        const engine = currentEngine;
+        if (!engine || typeof engine.recognize !== 'function') {
+            notifyStatus('error', 'No engine available');
+            throw new Error('No engine available');
+        }
+
+        try {
+            notifyStatus('processing', 'Processing...');
+            const result = await engine.recognize(canvas, options);
+            return result;
+        } catch (err) {
+            notifyStatus('error', 'OCR failed');
+            throw err;
+        }
+    }
+
+
+
+    // Unified preprocessing entry point
+    async function preprocess(canvas, mode, lineCount) {
+        const id = currentEngineId;
+        const entry = engines[id];
+        if (entry && typeof entry.preprocess === 'function') {
+            return await entry.preprocess(canvas, mode, lineCount);
+        }
+        return [canvas];
+    }
+
+    // Unified post-processing entry point
+    function postprocess(results) {
+        const id = currentEngineId;
+        const entry = engines[id];
+        if (entry && typeof entry.postprocess === 'function') {
+            return entry.postprocess(results);
+        }
+        return results.join(' ').trim();
+    }
+
+    function getReadyStatus() {
+        const id = currentEngineId;
+        const entry = engines[id];
+        return entry?.readyStatus || '🟢 OCR Ready';
+    }
+
+    function handleError(error) {
+        const id = currentEngineId;
+        const entry = engines[id];
+        if (entry && typeof entry.handleError === 'function') {
+            return entry.handleError(error);
+        }
+        console.error("Unhandleable error:", error);
+        return "[OCR Error]";
+    }
+
+    function emitError(error) {
+        notifyStatus("error", error);
+    }
+
+    return {
+        // Lifecycle
+        switchEngine,
+        runOCR,
+        // Preprocessing / Post-processing
+        preprocess,
+        postprocess,
+        // Error handling
+        handleError,
+        emitError,
+        // State
+        isReady: () => isReady,
+        getInfo: () => currentInfo,
+        getReadyStatus,
+        // Events
+        onStatusChange,
+        onReady(fn) { listeners.ready.push(fn); },
+        onLoading(fn) { listeners.loading.push(fn); },
+        onError(fn) { listeners.error.push(fn); },
+        // Internal notifier (used by setOCRStatus bridge only)
+        _notifyStatus: notifyStatus,
+    };
+
+})();
+
+// Temporary global bridge
+window.EngineManager = EngineManager;
+
+
+// Modular engine state handled by EngineManager events.
+
+/**
+ * Modular engine switcher to replace legacy logic eventually.
+ * @param {string} id - The engine ID from the registry.
+ */
+async function switchEngineModular(id) {
+    // 1) Normalize UI IDs like "paddle_2" → "paddle"
+    const normalizedId = id.replace(/_.+$/, "");
+
+
+    console.debug("[ENGINE-DEBUG] switchEngineModular() requested:", id, "normalized:", normalizedId);
+
+    const mangaNote = document.getElementById('manga-note');
+    if (mangaNote) {
+        mangaNote.classList.toggle('visible', normalizedId === 'manga');
+    }
+
+    const capturePreviewMenu = document.getElementById('menu-capture-preview');
+    if (capturePreviewMenu) {
+        capturePreviewMenu.style.display = normalizedId === 'manga' ? 'none' : 'block';
+    }
+
+    // 2) Lock UI during transition
+    if (engineSelector) engineSelector.disabled = true;
+    if (modeSelector) modeSelector.disabled = true;
+
+    // 3) Toggle Manga Dashboard Layout
+    const mainNode = document.querySelector('.app-main');
+    if (mainNode) {
+        if (normalizedId === 'manga') mainNode.classList.add('manga-layout');
+        else mainNode.classList.remove('manga-layout');
+    }
+
+    // 4) Delegate Lifecycle to EngineManager
+    const registryEntry = engines[normalizedId];
+    if (!registryEntry) {
+        console.error("[ENGINE-ERROR] No engine factory for:", normalizedId);
+        if (engineSelector) engineSelector.disabled = false;
+        if (modeSelector) modeSelector.disabled = false;
+        setOCRStatus('error', '🔴 Factory Missing');
+        return;
+    }
+
+    // Non-blocking engine load trigger
+    EngineManager.switchEngine({
+        ...registryEntry,
+        id: normalizedId
+    }).catch(err => {
+        console.error('Engine load error:', err);
+    });
+
+    // 8) Restore UI state
+    if (engineSelector) {
+        engineSelector.value = id; // preserve UI variant (e.g. "paddle_2")
+        engineSelector.disabled = false;
+    }
+    if (modeSelector) {
+        modeSelector.disabled = !registryEntry.supportsModes;
+    }
+}
+
 
 // Phase 5: PWA Install Management (Fixed duplication)
 let deferredPrompt = null;
@@ -102,12 +386,12 @@ document.getElementById('install-btn')?.addEventListener('click', async () => {
 let voices = [];
 let currentUtterance = null;
 let videoStream = null;
-let ocrWorker = null;
-let isOcrReady = false;
+
+
 let isProcessing = false;
 let captureGeneration = 0;
 let selectionRect = null;
-let currentModelAlias = null;
+
 
 // Smart Scout: 32x32 Comparison Logic
 const scoutCanvas = document.createElement('canvas');
@@ -139,62 +423,48 @@ window.speechSynthesis.onvoiceschanged = loadVoices;
 loadVoices();
 
 if (upscaleSlider) {
-    upscaleSlider.oninput = () => upscaleVal.textContent = parseFloat(upscaleSlider.value).toFixed(1);
+    upscaleSlider.oninput = () => {
+        const val = parseFloat(upscaleSlider.value);
+        if (upscaleVal) upscaleVal.textContent = val.toFixed(1);
+        setSetting('upscaleFactor', val);
+    };
 }
 
-function setOCRStatus(state, text) {
+// Step 2: Wire EngineManager (passive listener)
+EngineManager.onStatusChange(({ state, text }) => {
+    const ocrStatus = document.getElementById('ocr-status');
     if (!ocrStatus) return;
     ocrStatus.className = `status-pill ${state}`;
-    ocrStatus.textContent = text;
-}
+    if (text) ocrStatus.textContent = text;
+});
 
-async function ensureModelLoaded(requestedAlias) {
-    if (ocrWorker && currentModelAlias === requestedAlias) return;
-    setOCRStatus('loading', `🟡 Loading ${requestedAlias}...`);
-    isOcrReady = false;
-    if (ocrWorker) { await ocrWorker.terminate(); ocrWorker = null; }
-    try {
-        let langPath = 'https://tessdata.projectnaptha.com/4.0.0/';
-        let useGzip = true;
-        let actualLang = 'jpn';
-        if (requestedAlias === 'jpn_best') {
-            langPath = 'https://cdn.jsdelivr.net/gh/tesseract-ocr/tessdata_best@4.0.0/';
-            useGzip = false;
-        } else if (requestedAlias === 'jpn_fast') {
-            langPath = 'https://cdn.jsdelivr.net/gh/tesseract-ocr/tessdata_fast@4.0.0/';
-            useGzip = false;
-        } else if (requestedAlias === 'jpn_vert') actualLang = 'jpn_vert';
+function setOCRStatus(state, text) {
+    // Step 4: Forward status to EngineManager
+    if (window.EngineManager && typeof EngineManager._notifyStatus === 'function') {
+        EngineManager._notifyStatus(state, text);
+    }
 
-        ocrWorker = await Tesseract.createWorker(actualLang, 1, {
-            langPath: langPath,
-            gzip: useGzip,
-            logger: m => {
-                if (m.status === 'loading language traineddata') {
-                    const pct = Math.round(m.progress * 100);
-                    setOCRStatus('loading', `🟡 Data ${pct}%`);
-                }
-            }
-        });
-        currentModelAlias = requestedAlias;
-        isOcrReady = true;
-        // Tesseract-specific: optimize for VN text blocks
-        await ocrWorker.setParameters({
-            tessedit_pageseg_mode: '6'
-        });
-        setOCRStatus('ready', '🟢 OCR Ready');
-    } catch (e) {
-        setOCRStatus('error', '🔴 Load Error');
-        if (requestedAlias !== 'jpn' && !ensureModelLoaded._fallback) {
-            ensureModelLoaded._fallback = true;
-            try { await ensureModelLoaded('jpn'); }
-            finally { ensureModelLoaded._fallback = false; }
-        }
+    const ocrStatus = document.getElementById('ocr-status');
+    if (!ocrStatus) return;
+
+
+
+
+    // PRIORITY LOGIC:
+    // Only force the generic "READY" green status if the specific state requested is 'ready'.
+    // This allows 'processing' (Multi-Pass steps) and 'loading' (percentages) 
+    // to override the generic ready state even if the instance is technically loaded.
+    if (state === 'ready') {
+        ocrStatus.className = 'status-pill ready';
+        ocrStatus.textContent = text || `🟢 ${EngineManager.getInfo().id?.toUpperCase() || 'OCR'} READY`;
+    } else {
+        ocrStatus.className = `status-pill ${state}`;
+        ocrStatus.textContent = text;
     }
 }
 
 async function initOCR() {
     // Since #model-selector now handles engines, we default Tesseract to 'jpn_best'
-    await ensureModelLoaded('jpn_best');
 }
 
 function sliceImageIntoLines(canvas, lineCount) {
@@ -244,27 +514,62 @@ function updatePaddlePanelVisibility() {
     // Note: Panel is now part of the dropdown itself, nothing to toggle display on
 }
 
+function applyTesseractPreprocessing(cropCanvas, mode) {
+    if (mode === 'multi' || mode === 'last_resort') {
+        // Legacy Tesseract pipelines handle their own preprocessing internally
+        return [cropCanvas];
+    }
+    const processed = applyPreprocessing(cropCanvas, mode);
+    return [processed];
+}
+
+function applyPaddlePreprocessing(cropCanvas, lineCount) {
+    const count = lineCount || 1;
+    let slices = [cropCanvas];
+    if (count > 1) {
+        slices = sliceImageIntoLines(cropCanvas, count);
+    }
+    return slices.map(s => {
+        const t1 = trimEmptyVertical(s);
+        // If we created a NEW slice (count > 1), dispose of original slice canvas 's'
+        if (count > 1) { s.width = 0; s.height = 0; }
+        
+        const t2 = padLeft(t1, 4);
+        t1.width = 0; t1.height = 0; // Dispose intermediate
+        
+        const t3 = boostContrast(t2, 1.08);
+        t2.width = 0; t2.height = 0; // Dispose intermediate
+        
+        return t3;
+    });
+}
+
+/**
+ * Unified preprocessing entry point. Delegates to the active engine's preprocess function.
+ * @param {string} engineId - Active engine ID (used for debug logging only)
+ * @param {HTMLCanvasElement} rawCanvas - The original crop
+ * @param {string} mode - Preprocessing mode (adaptive, multi, etc.)
+ * @param {number} lineCount - Number of lines (for Paddle)
+ * @returns {HTMLCanvasElement[]} Array of one or more preprocessed canvases.
+ */
+async function preprocessForEngine(engineId, rawCanvas, mode, lineCount) {
+    if (!EngineManager.isReady()) {
+        console.debug("[ENGINE-DEBUG] preprocess skipping wait (event-driven logic)");
+    }
+
+    console.debug("[ENGINE-DEBUG] preprocessForEngine() delegating to EngineManager");
+    return await EngineManager.preprocess(rawCanvas, mode, lineCount);
+}
+
 
 if (modeSelector) {
     modeSelector.addEventListener('change', () => {
         applyUIToSettings();
-        state.mode = modeSelector.value;
-        console.log('[State Mirror] Mode updated:', state.mode);
+        console.log('[Mode Select] Mode updated:', modeSelector.value);
     });
 }
 
 
-if (panicBtn) {
-    panicBtn.onclick = () => {
-        engineSelector.value = 'tesseract';
-        engineSelector.dispatchEvent(new Event('change'));
-        modeSelector.value = 'multi';
-        modeSelector.disabled = false;
-        panicBtn.classList.add('active');
-        setTimeout(() => panicBtn.classList.remove('active'), 1000);
-        if (selectionRect) captureFrame(selectionRect);
-    };
-}
 
 // ==========================================
 // 1. Audio & TTS
@@ -380,11 +685,40 @@ if (selectionOverlay) {
         const hint = document.getElementById('selection-hint');
         if (hint) hint.classList.remove('visible');
     };
-    window.addEventListener('mousemove', e => { if (isSelecting) { const pos = getMousePos(e); currentX = pos.x; currentY = pos.y; drawSelectionRect(); } });
+
+    const applyMangaConstraint = () => {
+        const engineSelect = document.getElementById('model-selector');
+        if (engineSelect && engineSelect.value === 'manga') {
+            const w = Math.abs(currentX - startX);
+            const h = Math.abs(currentY - startY);
+            if (h === 0) return; // avoid div by zero on first pixel
+            
+            if (w > h * 1.2) {
+                const allowedW = h * 1.2;
+                currentX = currentX > startX ? startX + allowedW : startX - allowedW;
+            } else if (h > w * 1.2) {
+                const allowedH = w * 1.2;
+                currentY = currentY > startY ? startY + allowedH : startY - allowedH;
+            }
+        }
+    };
+
+    window.addEventListener('mousemove', e => { 
+        if (isSelecting) { 
+            const pos = getMousePos(e); 
+            currentX = pos.x; 
+            currentY = pos.y; 
+            applyMangaConstraint();
+            drawSelectionRect(); 
+        } 
+    });
+    
     window.addEventListener('mouseup', e => {
         if (!isSelecting) return;
         isSelecting = false; const pos = getMousePos(e);
         currentX = pos.x; currentY = pos.y;
+        applyMangaConstraint();
+        
         const w = selectionOverlay.width, h = selectionOverlay.height;
         const finalRect = {
             x: Math.min(startX, currentX) / w,
@@ -465,7 +799,10 @@ if (autoToggle) {
         if (autoToggle.checked) {
             if (label) label.textContent = "auto re-capture ON";
             if (autoCaptureTimer) clearInterval(autoCaptureTimer);
-            autoCaptureTimer = setInterval(checkAutoCapture, 500);
+            (async () => {
+                await switchEngineModular(EngineManager.getInfo().id || engineSelector?.value || "tesseract");
+                autoCaptureTimer = setInterval(checkAutoCapture, 500);
+            })();
         } else {
             if (label) label.textContent = "auto re-capture OFF";
             clearInterval(autoCaptureTimer);
@@ -643,100 +980,104 @@ async function captureFrame(rect) {
     // 6. Logging for verification
     if (getSetting('debug')) console.log(`[VN-OCR] Crop Source: sx=${cx_}, sy=${cy_}, sw=${cw_}, sh=${ch_}`);
 
-    let engine = engineSelector.value;
+    EngineManager._notifyStatus('processing', '🟡 Processing...');
+    await new Promise(r => setTimeout(r, 0)); // yield to browser for repaint
     const mode = modeSelector.value;
-
-    // Normalize paddle variants
-    if (engine.startsWith('paddle_')) {
-        engine = 'paddle';
-    }
+    console.debug("[INFERENCE-DEBUG] captureFrame engine:", EngineManager.getInfo().id, "mode:", mode);
 
     try {
-        if (engine === 'paddle') {
-            if (!window.paddleProvider) {
-                setOCRStatus('error', 'PaddleOCR not ready');
-                return;
+        const lineCount = getSetting('paddleLineCount') || 1;
+        const canvases = await preprocessForEngine(EngineManager.getInfo().id, rawCropCanvas, mode, lineCount);
+        console.debug("[INFERENCE-DEBUG] total slices:", canvases.length);
+
+        // 3. Unified Inference Loop (Polymorphic)
+        const ocrLines = [];
+        let totalConfidence = 0;
+        let confidenceCount = 0;
+
+        const engineInfo = EngineManager.getInfo();
+
+        for (let i = 0; i < canvases.length; i++) {
+            if (canvases.length > 1) {
+                console.debug(`[INFERENCE-DEBUG] processing slice ${i + 1}/${canvases.length}`);
             }
 
-            const lineCount = getSetting('paddleLineCount') || 1;
-
-            let canvases = [rawCropCanvas];
-            if (lineCount > 1) {
-                canvases = sliceImageIntoLines(rawCropCanvas, lineCount);
+            // Debug Thumbnail (Modularized via metadata)
+            if (i === 0) {
+                if (engineInfo.capabilities.isMultiLine) updateDebugThumb(rawCropCanvas);
+                else updateDebugThumb(canvases[0]);
             }
 
-            let finalText = '';
+            const clean = canvases[i];
+            if (!clean.width || !clean.height) continue;
 
-            for (let i = 0; i < canvases.length; i++) {
-                if (canvases.length > 1) console.log(`Paddle Slice ${i + 1}/${canvases.length}`);
+            console.debug("[INFERENCE-DEBUG] slice dimensions:", clean.width, "x", clean.height);
+            
+            try {
+                const result = await EngineManager.runOCR(clean);
+                const { text } = result;
 
-                // === FIXED TEXTBOX CROP (DETECTORLESS PIPELINE) ===
-                let clean = trimEmptyVertical(canvases[i]);
-                clean = padLeft(clean, 4);
-                clean = boostContrast(clean, 1.08);
-
-                if (i === 0) updateDebugThumb(rawCropCanvas);
-
-                if (!clean.width || !clean.height) continue;
-                const result = await window.paddleProvider.recognize(clean);
-                if (result && result.text && result.text.trim()) {
-                    finalText += result.text.trim() + '\n';
+                // Extract Confidence (Engine-agnostic)
+                const confidence = result.confidence ?? null;
+                if (confidence !== null) {
+                    totalConfidence += confidence;
+                    confidenceCount++;
                 }
-            }
 
-            if (captureGeneration !== myGen) return;
-
-            finalText = finalText.trim();
-
-            // Update UI with the result
-            if (finalText) {
-                addOCRResultToUI(finalText);
-                setOCRStatus('ready', '🟢 OCR Complete');
-
-                // Sync with #latest-text if updateLatestText exists (per Step 4 prompt)
-                if (typeof updateLatestText === 'function') {
-                    updateLatestText(finalText);
+                if (text && text.trim()) {
+                    ocrLines.push(text.trim());
                 }
-            } else {
-                setOCRStatus('ready', '⚪ No text detected');
-            }
-        } else {
-            // Tesseract always uses jpn_best now per Section 1 Cleanup
-            await ensureModelLoaded('jpn_best');
-
-            if (mode === 'last_resort') {
-                const result = await runLastResortOCR(rawCropCanvas, myGen);
-                if (captureGeneration !== myGen) return;
-                updateDebugThumb(result.canvas);
-                addOCRResultToUI(result.text);
-            } else if (mode === 'multi') {
-                const result = await runMultiPassOCR(rawCropCanvas, myGen);
-                if (captureGeneration !== myGen) return;
-                updateDebugThumb(result.canvas);
-                addOCRResultToUI(result.text);
-            } else {
-                const processed = applyPreprocessing(rawCropCanvas, mode);
-                if (captureGeneration !== myGen) return;
-                updateDebugThumb(processed);
-                setOCRStatus('processing', '🟡 Reading...');
-                const result = await runTesseract(processed);
-                if (captureGeneration !== myGen) return;
-                addOCRResultToUI(result.text);
+            } catch (error) {
+                const safeText = EngineManager.handleError(error);
+                ocrLines.push(safeText);
+                EngineManager.emitError(error);
             }
         }
+
+        if (captureGeneration !== myGen) return;
+        
+        // Modular Post-processing
+        const finalText = EngineManager.postprocess(ocrLines);
+
+        const avgConfidence = confidenceCount > 0 ? (totalConfidence / confidenceCount) : null;
+        if (avgConfidence !== null) {
+            console.log("[ENGINE-DEBUG] average confidence:", avgConfidence);
+        }
+
+        // 4. Unified UI Update
+        if (finalText) {
+            addOCRResultToUI(finalText, avgConfidence);
+            setOCRStatus('ready', '🟢 OCR Complete');
+            if (typeof updateLatestText === 'function') {
+                updateLatestText(finalText);
+            }
+        } else {
+            setOCRStatus('ready', '⚪ No text detected');
+        }
+
+        // 5. Explicit Memory Cleanup (Step 9 Hardening)
+        canvases.forEach(c => {
+            if (c && c !== rawCropCanvas) {
+                c.width = 0;
+                c.height = 0;
+            }
+        });
     } catch (err) {
-        console.error("OCR Error:", err);
-        setOCRStatus('error', '🔴 OCR Error');
+        console.error("Frame-level OCR Error:", err);
+        EngineManager.emitError(err);
     }
     finally {
+        // 6. Final Memory Hardening: Zero out the source crop
+        if (rawCropCanvas) {
+            rawCropCanvas.width = 0;
+            rawCropCanvas.height = 0;
+        }
+
         // Small cooldown to prevent rapid-fire re-triggering
         setTimeout(() => {
             isProcessing = false;
-            const engine = engineSelector.value;
-            if (engine.startsWith('paddle') && window.paddleProvider?.isLoaded) {
-                setOCRStatus('ready', '🟢 PaddleOCR Ready');
-            } else if (isOcrReady && engine === 'tesseract') {
-                setOCRStatus('ready', '🟢 OCR Ready');
+            if (EngineManager.isReady()) {
+                setOCRStatus('ready', EngineManager.getReadyStatus());
             }
         }, 100);
     }
@@ -931,82 +1272,6 @@ function lr_addPadding(canvas, pad) {
     return res;
 }
 
-function lr_isolateTextbox(canvas) {
-    const ctx = canvas.getContext('2d');
-    const w = canvas.width, h = canvas.height;
-    if (h < 100) return canvas;
-    const id = ctx.getImageData(0, 0, w, h);
-    const d = id.data;
-    const projection = new Float32Array(h);
-    for (let y = 1; y < h - 1; y++) {
-        let sum = 0;
-        for (let x = 1; x < w - 1; x++) {
-            const idx = (y * w + x) * 4;
-            sum += Math.abs(d[idx] - d[idx + 4]) + Math.abs(d[idx] - d[idx + w * 4]);
-        }
-        projection[y] = sum / w;
-    }
-    let bestBand = { start: 0, end: h, avg: 0 };
-    const bandH = Math.floor(h * 0.25);
-    for (let y = 0; y < h - bandH; y++) {
-        let sum = 0; for (let i = 0; i < bandH; i++) sum += projection[y + i];
-        const avg = sum / bandH;
-        if (avg > bestBand.avg) bestBand = { start: y, end: y + bandH, avg: avg };
-    }
-    if (bestBand.avg < 10) return canvas;
-    const padTop = 20;
-    const padBottom = 80;
-    const start = Math.max(0, bestBand.start - padTop);
-    const end = Math.min(h, bestBand.end + padBottom);
-    const res = document.createElement('canvas'); res.width = w; res.height = end - start;
-    res.getContext('2d').drawImage(canvas, 0, start, w, end - start, 0, 0, w, end - start);
-    return res;
-}
-
-function lr_reconstructStrokes(canvas) {
-    const ctx = canvas.getContext('2d');
-    const w = canvas.width, h = canvas.height;
-    const id = ctx.getImageData(0, 0, w, h);
-    const d = id.data;
-    const edges = new Float32Array(w * h);
-    const kx = [-1, 0, 1, -2, 0, 2, -1, 0, 1], ky = [-1, -2, -1, 0, 0, 0, 1, 2, 1];
-    for (let y = 1; y < h - 1; y++) {
-        for (let x = 1; x < w - 1; x++) {
-            let gx = 0, gy = 0;
-            for (let i = -1; i <= 1; i++) {
-                for (let j = -1; j <= 1; j++) {
-                    const v = (d[((y + i) * w + (x + j)) * 4] + d[((y + i) * w + (x + j)) * 4 + 1] + d[((y + i) * w + (x + j)) * 4 + 2]) / 3;
-                    gx += v * kx[(i + 1) * 3 + (j + 1)]; gy += v * ky[(i + 1) * 3 + (j + 1)];
-                }
-            }
-            edges[y * w + x] = Math.sqrt(gx * gx + gy * gy);
-        }
-    }
-    const dilated = new Float32Array(w * h);
-    for (let y = 1; y < h - 1; y++) {
-        for (let x = 1; x < w - 1; x++) {
-            let m = 0;
-            for (let iy = -1; iy <= 1; iy++) {
-                for (let ix = -1; ix <= 1; ix++) {
-                    const v = edges[(y + iy) * w + (x + ix)];
-                    if (v > m) m = v;
-                }
-            }
-            dilated[y * w + x] = m;
-        }
-    }
-    const out = ctx.createImageData(w, h);
-    for (let i = 0; i < w * h; i++) {
-        const g = (d[i * 4] + d[i * 4 + 1] + d[i * 4 + 2]) / 3;
-        const v = Math.min(255, (g * 0.6) + (dilated[i] * 0.4));
-        out.data[i * 4] = out.data[i * 4 + 1] = out.data[i * 4 + 2] = v;
-        out.data[i * 4 + 3] = 255;
-    }
-    const res = document.createElement('canvas'); res.width = w; res.height = h;
-    res.getContext('2d').putImageData(out, 0, 0);
-    return res;
-}
-
 /** Returns new canvas. Applies 3x3 median filter per channel. */
 function medianFilter(canvas) {
     const ctx = canvas.getContext('2d');
@@ -1099,87 +1364,21 @@ function sharpenCanvas(canvas) {
 }
 
 // Pipelines
-async function runLastResortOCR(cropCanvas, gen) {
-    setOCRStatus('processing', '⚡ Isolating Textbox...');
-    const textbox = lr_isolateTextbox(cropCanvas);
 
-    const padded = lr_addPadding(textbox, 1);
-    setOCRStatus('processing', '⚡ Reconstructing Strokes...');
-    const base = lr_reconstructStrokes(lr_upscale(padded, 2));
 
-    const passes = [];
-    const cancelled = () => captureGeneration !== gen;
-    const run = async (c, lbl) => { if (cancelled()) return; setOCRStatus('processing', lbl); const r = await runTesseract(c); r.canvas = c; passes.push(r); };
 
-    await run(base, '⚡ Last Resort (1/7)...');
-    await run(lr_upscale(base, 2), '⚡ Last Resort (2/7)...');
-    await run(applyPreprocessing(base, 'grayscale'), '⚡ Last Resort (3/7)...');
-    await run(applyPreprocessing(lr_upscale(lr_isolateTextbox(cropCanvas), 2), 'adaptive'), '⚡ Last Resort (4/7)...');
-    await run(applyPreprocessing(base, 'adaptive'), '⚡ Last Resort (5/7)...');
-    await run(applyPreprocessing(base, 'binarize'), '⚡ Last Resort (6/7)...');
-    await run(applyPreprocessing(lr_upscale(base, 2), 'adaptive'), '⚡ Last Resort (7/7)...');
 
-    const result = passes.length > 0 ? fuseOCRResults(passes) : { text: '', canvas: base };
-    result.canvas = base;
-    return result;
-}
-
-async function runMultiPassOCR(crop, gen) {
-    const passes = [];
-    const cancelled = () => captureGeneration !== gen;
-    const run = async (c, lbl) => { if (cancelled()) return; setOCRStatus('processing', lbl); const r = await runTesseract(c); r.canvas = c; passes.push(r); };
-    const upscaled = lr_upscale(crop, 2);
-    await run(crop, '🔥 Multi-Pass (1/5)...');
-    await run(upscaled, '🔥 Multi-Pass (2/5)...');
-    await run(applyPreprocessing(upscaled, 'grayscale'), '🔥 Multi-Pass (3/5)...');
-    await run(applyPreprocessing(upscaled, 'binarize'), '🔥 Multi-Pass (4/5)...');
-    await run(applyPreprocessing(upscaled, 'adaptive'), '🔥 Multi-Pass (5/5)...');
-    const result = passes.length > 0 ? fuseOCRResults(passes) : { text: '', canvas: crop };
-    return result;
-}
-
-function fuseOCRResults(results) {
-    const jaRegex = /[\u3000-\u303f\u3040-\u309f\u30a0-\u30ff\uff00-\uff9f\u4e00-\u9faf\u3400-\u4dbf]/g;
-    // Scoring rationale:
-    // - confidence: Tesseract's self-reported quality (0-100)
-    // - jaDensity: ratio of Japanese Unicode chars to total chars
-    //   Higher density = more likely to be real Japanese text vs noise
-    // - +0.1 bias: prevents zero-score for results with some Japanese
-    // - 2x bonus when jaDensity > 0.3: rewards predominantly Japanese results
-    // - 0.5x penalty below 0.3: deprioritizes noisy results
-    // These thresholds were hand-tuned. Future: validate against labeled dataset.
-    const scored = results.map(r => {
-        const text = (r.text || "").replace(/\s+/g, '').trim();
-        if (!text) return { text: "", score: -1, canvas: r.canvas };
-        const jaMatches = text.match(jaRegex) || [];
-        const jaDensity = jaMatches.length / text.length;
-        const score = (r.confidence || 0) * (jaDensity + 0.1) * (jaDensity > 0.3 ? 2 : 0.5);
-        return { text, score, canvas: r.canvas };
-    }).filter(r => r.score > 0);
-    if (scored.length === 0) return { text: "", canvas: results[0].canvas };
-    scored.sort((a, b) => b.score - a.score || b.text.length - a.text.length);
-    return scored[0];
-}
-
-async function runTesseract(canvas) {
-    if (!isOcrReady || !ocrWorker) return { text: "", confidence: 0 };
-    try {
-        const { data: { text, confidence } } = await ocrWorker.recognize(canvas);
-        return { text: text || "", confidence: confidence || 0 };
-    }
-    catch (e) { return { text: "", confidence: 0 }; }
-}
-
-function addOCRResultToUI(text) {
+function addOCRResultToUI(text, confidence = null) {
+    const confStr = (confidence !== null) ? ` [${Math.round(confidence)}%]` : '';
     const clean = text.replace(/\s+/g, '').trim(); if (!clean) return;
-    if (latestText) latestText.textContent = clean;
+    if (latestText) latestText.textContent = clean + confStr;
 
     const item = document.createElement('p');
     item.className = 'history-item';
     item.setAttribute('lang', 'ja');
 
     const span = document.createElement('span');
-    span.textContent = clean;
+    span.textContent = clean + confStr;
     item.appendChild(span);
 
     const btnRow = document.createElement('div');
@@ -1219,10 +1418,25 @@ if (clearHistoryBtn) {
 if (refreshOcrBtn) refreshOcrBtn.onclick = () => { if (selectionRect) captureFrame(selectionRect); };
 if (autoCaptureBtn) autoCaptureBtn.onclick = () => autoToggle?.click();
 
+function openUserGuide() {
+    const helpModal = document.getElementById('help-modal');
+    if (helpModal) {
+        helpModal.classList.add('active');
+    }
+}
+
 function initHelpModal() {
-    const helpBtn = document.getElementById('help-btn'), helpModal = document.getElementById('help-modal'), helpClose = document.getElementById('help-close');
+    const helpBtn = document.getElementById('help-btn'), 
+          helpModal = document.getElementById('help-modal'), 
+          helpClose = document.getElementById('help-close');
+    
     if (!helpBtn || !helpModal) return;
-    helpBtn.onclick = (e) => { e.stopPropagation(); helpModal.classList.add('active'); };
+    
+    helpBtn.onclick = (e) => { 
+        e.stopPropagation(); 
+        openUserGuide(); 
+    };
+    
     if (helpClose) helpClose.onclick = () => helpModal.classList.remove('active');
     window.addEventListener('click', (e) => { if (e.target === helpModal) helpModal.classList.remove('active'); });
     window.addEventListener('keydown', (e) => { if (e.key === 'Escape') helpModal.classList.remove('active'); });
@@ -1232,106 +1446,38 @@ function initHelpModal() {
 // 6. Settings & PaddleOCR Implementation
 // ==========================================
 
-async function loadPaddleOCR() {
-    if (window.paddleProvider && window.paddleProvider.isLoaded) {
-        setOCRStatus('ready', '🟢 PaddleOCR Ready');
-        return;
-    }
-    if (isProcessing) return;
-    isProcessing = true;
-    try {
-        window.paddleProvider = new PaddleOCR(
-            './models/paddle/manifest.json',
-            './js/onnx/',
-            (msg) => setOCRStatus('loading', msg)
-        );
-        await window.paddleProvider.loadModels();
-        setOCRStatus('ready', '🟢 PaddleOCR Ready');
-    } catch (err) {
-        console.error('Failed to load PaddleOCR', err);
-        setOCRStatus('error', '🔴 PaddleOCR Load Failed');
-        window.paddleProvider = null;
-        if (engineSelector) engineSelector.value = previousMode;
-        setSetting('ocrMode', previousMode);
-    } finally {
-        isProcessing = false;
-    }
-}
+// 6. Settings Implementation
+// (Legacy engine loading functions removed in favor of modular switcher)
 
 // 6.1 Initialization
 function initSettings() {
     loadSettings();
     applySettingsToUI();
 
-    const mode = getSetting('ocrMode') || 'tesseract';
+    const engine = getSetting('ocrEngine') || 'tesseract';
     const paddleLines = getSetting('paddleLineCount') || 3;
     const showWarning = getSetting('showHeavyWarning');
 
     // Startup Banner Logic
-    if (mode === 'paddle' && showWarning) {
+    if (engine === 'paddle' && showWarning) {
         document.getElementById('startup-banner')?.classList.add('active');
     }
 
     // Sync Engine Selector UI
-    if (mode === 'tesseract') {
+    if (engine === 'tesseract') {
         engineSelector.value = 'tesseract';
+    } else if (engine === 'manga') {
+        engineSelector.value = 'manga';
     } else {
         engineSelector.value = `paddle_${paddleLines}`;
     }
-
-    // Sync State Mirror (Initial)
-    state.engine = engineSelector.value;
-    state.mode = mode;
-    state.paddleLineCount = paddleLines;
 
     // Update guides if present (handled via drawSelectionRect indirectly)
     if (selectionRect) drawSelectionRect();
 }
 
 // 6.2 PaddleOCR Toggle and Warning Logic
-// Normalize current engine state from settings
-let previousMode = (getSetting('ocrMode') === 'paddle') ? 'paddle' : 'tesseract';
-
-async function switchEngine(newMode, force = false) {
-    // Re-entry guard: don't reload if already active (unless forced)
-    const isCurrentLoaded = (newMode === 'tesseract' && ocrWorker) || (newMode === 'paddle' && window.paddleProvider?.isLoaded);
-    if (!force && newMode === previousMode && isCurrentLoaded) return;
-
-    // Teardown previous engine
-    if (previousMode === 'tesseract' && ocrWorker) {
-        ocrWorker.terminate();
-        ocrWorker = null;
-    }
-
-    if (previousMode === 'paddle' && window.paddleProvider) {
-        if (window.paddleProvider.isLoaded) {
-            await window.paddleProvider.dispose();
-        }
-        window.paddleProvider = null;
-    }
-
-    // Update settings + state
-    previousMode = newMode;
-    setSetting('ocrMode', newMode);
-
-    // Sync preprocessing UI
-    if (typeof modeSelector !== 'undefined' && modeSelector) {
-        modeSelector.disabled = (newMode === 'paddle');
-
-        // Ensure preprocessing mode is always valid when using Tesseract
-        if (newMode === 'tesseract') {
-            modeSelector.value = 'default_mini';
-            setSetting('ocrMode', 'default_mini');
-        }
-    }
-
-    // Load new engine
-    if (newMode === 'tesseract') {
-        await initOCR();
-    } else if (newMode === 'paddle') {
-        await loadPaddleOCR();
-    }
-}
+// Unified modular switcher handles all transitions now.
 
 engineSelector.addEventListener('change', async () => {
     const rawValue = engineSelector.value;
@@ -1356,27 +1502,35 @@ engineSelector.addEventListener('change', async () => {
 
     // 3. Intercept PaddleOCR if warnings are enabled
     if (baseMode === 'paddle' && getSetting('showHeavyWarning')) {
-        const currentMode = getSetting('ocrMode');
+        const currentEngine = getSetting('ocrEngine');
         const currentLines = getSetting('paddleLineCount');
-        engineSelector.value = (currentMode === 'tesseract')
+        engineSelector.value = (currentEngine === 'tesseract')
             ? 'tesseract'
-            : `paddle_${currentLines}`;
+            : (currentEngine === 'paddle' ? `paddle_${currentLines}` : currentEngine);
 
         document.getElementById('paddle-modal').classList.add('active');
         if (selectionRect) window.drawSelectionRect();
         return;
     }
 
-    // 4. Persist engine mode
-    setSetting('ocrMode', baseMode);
+    // 3.5 Intercept MangaOCR if warnings are enabled
+    if (baseMode === 'manga' && getSetting('showMangaWarning') !== false) {
+        const currentEngine = getSetting('ocrEngine');
+        const currentLines = getSetting('paddleLineCount');
+        engineSelector.value = (currentEngine === 'tesseract')
+            ? 'tesseract'
+            : (currentEngine === 'paddle' ? `paddle_${currentLines}` : currentEngine);
 
-    // Sync State Mirror
-    state.engine = engineSelector.value;
-    state.paddleLineCount = lineCount || state.paddleLineCount;
-    console.log('[State Mirror] Engine update:', state.engine);
+        document.getElementById('manga-modal').classList.add('active');
+        if (selectionRect) window.drawSelectionRect();
+        return;
+    }
+
+    // 4. Persist engine mode
+    setSetting('ocrEngine', baseMode);
 
     // 5. Switch engine using base mode only
-    await switchEngine(baseMode);
+    await switchEngineModular(rawValue);
 
     if (selectionRect) window.drawSelectionRect();
 });
@@ -1392,19 +1546,44 @@ document.getElementById('paddle-continue')?.addEventListener('click', async () =
     const count = getSetting('paddleLineCount') || 3;
     engineSelector.value = `paddle_${count}`;
     
-    // Sync State Mirror
-    state.engine = engineSelector.value;
-    state.paddleLineCount = count;
-    
-    await switchEngine('paddle');
+    await switchEngineModular(`paddle_${count}`);
 
     document.getElementById('paddle-modal').classList.remove('active');
     if (selectionRect) window.drawSelectionRect();
 });
 
 document.getElementById('paddle-cancel')?.addEventListener('click', () => {
-    engineSelector.value = previousMode;
+    // Rely on currentEngine logic to fallback
+    const currentEngine = getSetting('ocrEngine');
+    const currentLines = getSetting('paddleLineCount');
+    engineSelector.value = (currentEngine === 'tesseract') ? 'tesseract' : (currentEngine === 'paddle' ? `paddle_${currentLines}` : currentEngine);
+    
     document.getElementById('paddle-modal').classList.remove('active');
+    if (selectionRect) window.drawSelectionRect();
+});
+
+// 6.3.5 Manga Modal Event Listeners
+document.getElementById('manga-continue')?.addEventListener('click', async () => {
+    const checkbox = document.getElementById('manga-warning-checkbox');
+    if (checkbox?.checked) {
+        setSetting('showMangaWarning', false);
+    }
+
+    engineSelector.value = 'manga';
+    setSetting('ocrEngine', 'manga');
+    
+    await switchEngineModular('manga');
+
+    document.getElementById('manga-modal').classList.remove('active');
+    if (selectionRect) window.drawSelectionRect();
+});
+
+document.getElementById('manga-cancel')?.addEventListener('click', () => {
+    const currentEngine = getSetting('ocrEngine');
+    const currentLines = getSetting('paddleLineCount');
+    engineSelector.value = (currentEngine === 'tesseract') ? 'tesseract' : (currentEngine === 'paddle' ? `paddle_${currentLines}` : currentEngine);
+    
+    document.getElementById('manga-modal').classList.remove('active');
     if (selectionRect) window.drawSelectionRect();
 });
 
@@ -1420,12 +1599,8 @@ document.getElementById('banner-switch-default')?.addEventListener('click', asyn
         modeSelector.value = 'default_mini';
     }
 
-    // Sync State Mirror
-    state.engine = 'tesseract';
-    state.mode = 'default_mini';
-
     // 3. Trigger the actual engine switch to unload Paddle and load Tesseract
-    await switchEngine('tesseract');
+    await switchEngineModular('tesseract');
 
     // 4. Close banner and refresh visual guides
     document.getElementById('startup-banner')?.classList.remove('active');
@@ -1441,29 +1616,34 @@ document.getElementById('banner-close')?.addEventListener('click', () => {
 });
 
 // 6.5 Global Initialization
-function globalInitialize() {
+async function globalInitialize() {
     initHelpModal();
     initSettings();
 
-    // UI Synchronization: Ensure the dropdowns match saved settings early
-    const savedMode = getSetting('ocrMode');
-    const isPaddle = (savedMode === 'paddle');
+    // Ensure panic button is removed from UI as fallback/panic logic is retired
+    document.getElementById('panic-btn')?.remove();
 
-    if (isPaddle) {
-        const count = getSetting('paddleLineCount') || 3;
-        if (engineSelector) engineSelector.value = `paddle_${count}`;
-        if (modeSelector) modeSelector.disabled = true;
-    } else {
-        if (engineSelector) engineSelector.value = 'tesseract';
-        if (modeSelector) {
-            // On first load, ensure mode selector is valid
-            modeSelector.disabled = false;
-            modeSelector.value = savedMode || 'default_mini';
-        }
+    // Startup Engine Load: Restore the primary engine choice exactly once
+    const savedEngine = getSetting('ocrEngine') || 'tesseract';
+    console.debug("[INIT] Restoring engine:", savedEngine);
+    
+    // 1. Initial UI update for selector
+    if (engineSelector) engineSelector.value = savedEngine;
+
+    // 2. Trigger actual engine load
+    await switchEngineModular(savedEngine);
+
+    // 3. Post-load Mode Restoration (Deterministic)
+    const savedMode = getSetting('ocrMode') || 'default_mini';
+    console.debug("[INIT] Restoring mode after engine load:", savedMode);
+    
+    if (modeSelector) {
+        modeSelector.value = savedMode;
+        modeSelector.disabled = !EngineManager.getInfo().capabilities.supportsModes;
     }
 
-    // Startup Engine Load: Load the saved engine exactly once
-    switchEngine(isPaddle ? 'paddle' : 'tesseract');
+    // 4. Final Status Affirmation
+    setOCRStatus('ready', savedEngine);
 
 
 
@@ -1540,12 +1720,10 @@ globalInitialize();
     const menuBtn = document.getElementById('menu-btn');
     const sideMenu = document.getElementById('side-menu');
     const menuBackdrop = document.getElementById('menu-backdrop');
-    const menuTheme = document.getElementById('menu-theme');
-    const menuAuto = document.getElementById('menu-auto');
-    const menuCopy = document.getElementById('menu-copy');
     const menuInstall = document.getElementById('menu-install');
-    const menuHistory = document.getElementById('menu-history');
     const menuGuide = document.getElementById('menu-guide');
+    const menuContact = document.getElementById('menu-contact');
+    const menuReset = document.getElementById('menu-reset');
 
     const openMenu = () => {
         if (sideMenu) sideMenu.classList.add('open');
@@ -1564,29 +1742,6 @@ globalInitialize();
         if (e.key === 'Escape') closeMenu();
     });
 
-    if (menuTheme) menuTheme.onclick = () => {
-        const next = document.body.classList.contains('light-theme') ? 'dark' : 'light';
-        setSetting('theme', next);
-        applySettingsToUI();
-        closeMenu();
-    };
-
-    if (menuAuto) menuAuto.onclick = () => {
-        const at = document.getElementById('auto-capture-toggle');
-        if (at) at.click(); // Re-use existing toggle logic
-        closeMenu();
-    };
-
-    if (menuCopy) {
-        const updateCopyLabel = () => { menuCopy.textContent = getSetting('autoCopy') ? 'Auto-Copy: ON' : 'Auto-Copy: OFF'; };
-        updateCopyLabel();
-        menuCopy.onclick = () => {
-            setSetting('autoCopy', !getSetting('autoCopy'));
-            updateCopyLabel();
-            closeMenu();
-        };
-    }
-
     if (menuInstall) menuInstall.onclick = () => {
         const it = document.getElementById('install-btn');
         if (it) it.click();
@@ -1594,26 +1749,64 @@ globalInitialize();
     };
 
     if (menuGuide) menuGuide.onclick = () => {
-        const hb = document.getElementById('help-btn');
-        if (hb) hb.click();
+        console.debug("[MENU] Opening User Guide...");
+        if (typeof openUserGuide === "function") {
+            openUserGuide();
+        } else {
+            const hb = document.getElementById('help-btn');
+            if (hb) hb.click();
+        }
         closeMenu();
     };
 
-    if (menuHistory) menuHistory.onclick = () => {
-        const next = !getSetting('historyVisible');
-        setSetting('historyVisible', next);
-        applySettingsToUI();
+    if (menuContact) menuContact.onclick = () => {
+        console.debug("[MENU] Opening GitHub Issues Page...");
+        window.open('https://github.com/RoboZilina/personalOCR/issues/new', '_blank');
         closeMenu();
     };
+
+    if (menuReset) menuReset.onclick = () => {
+        if (confirm("Reset all UI settings to defaults? (This will not switch your current OCR engine)")) {
+            resetSettings();
+            closeMenu();
+        }
+    };
+
+    const subItemBtns = document.querySelectorAll('.menu-subitem-btn');
+    if (subItemBtns) {
+        subItemBtns.forEach(btn => {
+            btn.onclick = (e) => {
+                const setting = btn.dataset.setting;
+                let val = btn.dataset.value;
+                if (setting && val) {
+                    if (val === "true") val = true;
+                    if (val === "false") val = false;
+                    
+                    setSetting(setting, val);
+                    
+                    // Specific toggle syncs for core logic if needed
+                    if (setting === 'autoCapture') {
+                        const at = document.getElementById('auto-capture-toggle');
+                        if (at && at.checked !== val) at.click();
+                    }
+                    
+                    applySettingsToUI();
+                    closeMenu();
+                }
+            };
+        });
+    }
 })();
 
 /** Public API Namespace (Auditability Phase) */
 window.VNOCR = {
-    version: '1.3.3-gold',
-    state: state,
-    isReady: isEngineReady,
+    version: '2.0.0',
+    isReady: EngineManager.isReady,
     drawSelectionRect: window.drawSelectionRect,
     captureFrame: window.captureFrame,
     switchEngine: window.switchEngine
 };
+
+
+
 
