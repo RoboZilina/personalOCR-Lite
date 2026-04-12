@@ -17,8 +17,8 @@ const defaultSettings = {
     previewVisible: false,
     debug: false,
     paddleLineCount: 3,
-    textAreaSize: "standard",     // "small", "standard", "large"
-    textSize: "standard"          // "small", "standard", "large"
+    textSize: "standard",          // "small", "standard", "large"
+    upscaleFactor: 2.0
 };
 
 let currentSettings = { ...defaultSettings };
@@ -136,6 +136,12 @@ export function applySettingsToUI() {
     document.body.classList.remove('text-size-small', 'text-size-standard', 'text-size-large');
     document.body.classList.add(`text-size-${currentSettings.textSize}`);
 
+    // 6. Upscale Slider
+    const upscaleSlider = document.querySelector("#upscale-slider");
+    const upscaleVal = document.querySelector("#upscale-val");
+    if (upscaleSlider) upscaleSlider.value = currentSettings.upscaleFactor;
+    if (upscaleVal) upscaleVal.textContent = parseFloat(currentSettings.upscaleFactor).toFixed(1);
+
     // Update active highlight on menu buttons
     document.querySelectorAll('.menu-subitem-btn[data-setting]').forEach(btn => {
         const settingKey = btn.dataset.setting;
@@ -162,4 +168,21 @@ export function applyUIToSettings() {
     // so they are handled directly via setSetting in their click handlers,
     // but we save the whole state here just in case.
     saveSettings(currentSettings);
+}
+
+/**
+ * Resets all settings to defaults, preserving current OCR Engine/Mode.
+ */
+export function resetSettings() {
+    const savedEngine = currentSettings.ocrEngine;
+    const savedMode = currentSettings.ocrMode;
+
+    currentSettings = { 
+        ...defaultSettings, 
+        ocrEngine: savedEngine,
+        ocrMode: savedMode
+    };
+
+    saveSettings(currentSettings);
+    applySettingsToUI();
 }

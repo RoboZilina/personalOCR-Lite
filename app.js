@@ -30,7 +30,8 @@ import {
     getSetting,
     setSetting,
     applySettingsToUI,
-    applyUIToSettings
+    applyUIToSettings,
+    resetSettings
 } from './settings.js';
 
 import {
@@ -146,7 +147,7 @@ async function switchEngineModular(id) {
 
     const mangaNote = document.getElementById('manga-note');
     if (mangaNote) {
-        mangaNote.style.display = normalizedId === 'manga' ? 'flex' : 'none';
+        mangaNote.classList.toggle('visible', normalizedId === 'manga');
     }
 
     const capturePreviewMenu = document.getElementById('menu-capture-preview');
@@ -272,7 +273,11 @@ window.speechSynthesis.onvoiceschanged = loadVoices;
 loadVoices();
 
 if (upscaleSlider) {
-    upscaleSlider.oninput = () => upscaleVal.textContent = parseFloat(upscaleSlider.value).toFixed(1);
+    upscaleSlider.oninput = () => {
+        const val = parseFloat(upscaleSlider.value);
+        if (upscaleVal) upscaleVal.textContent = val.toFixed(1);
+        setSetting('upscaleFactor', val);
+    };
 }
 
 function setOCRStatus(state, text) {
@@ -1762,6 +1767,7 @@ globalInitialize();
     const menuBackdrop = document.getElementById('menu-backdrop');
     const menuInstall = document.getElementById('menu-install');
     const menuGuide = document.getElementById('menu-guide');
+    const menuReset = document.getElementById('menu-reset');
 
     const openMenu = () => {
         if (sideMenu) sideMenu.classList.add('open');
@@ -1786,10 +1792,11 @@ globalInitialize();
         closeMenu();
     };
 
-    if (menuGuide) menuGuide.onclick = () => {
-        const hb = document.getElementById('help-btn');
-        if (hb) hb.click();
-        closeMenu();
+    if (menuReset) menuReset.onclick = () => {
+        if (confirm("Reset all UI settings to defaults? (This will not switch your current OCR engine)")) {
+            resetSettings();
+            closeMenu();
+        }
     };
 
     const subItemBtns = document.querySelectorAll('.menu-subitem-btn');
