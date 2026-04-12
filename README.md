@@ -1,8 +1,8 @@
-# VN-OCR — Hardened Milestone (v2.1.0)
+# VN-OCR — Hardened Milestone (v2.1.1)
 
 A high-performance, browser-only Japanese OCR suite for Japanese Media. No installation, no backend, and uncompromising privacy.
 
-## v2.1.0: The Hardened Baseline
+## v2.1.1: The Persistence & Consensus Milestone
 This version represents a major architectural milestone focused on **Defensive State Management** and **Modular Engine Reliability**. The application is now architecturally immune to corrupted state glitches and "blank selector" bugs that often plague PWAs during updates.
 
 ## Features
