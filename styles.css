@@ -123,6 +123,16 @@ body {
     border-left: 1px solid var(--border);
 }
 
+/* Treat Text Area Size as Panel Width in Manga mode */
+body.text-area-small .app-main.manga-layout .transcription-tray { width: 350px; }
+body.text-area-large .app-main.manga-layout .transcription-tray { width: 650px; }
+
+.app-main.manga-layout .tray-actions {
+    height: auto;
+    min-height: auto;
+    padding-bottom: 24px;
+}
+
 .app-main.manga-layout .latest-line-window {
     height: auto;
     align-items: flex-start;
@@ -280,6 +290,69 @@ body {
     margin-bottom: 8px; width: 100%;
 }
 .menu-item-btn:hover { background: rgba(255,255,255,0.05); border-color: var(--border); color: var(--accent); }
+
+.menu-section {
+    margin-bottom: 12px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--border);
+}
+.menu-section h4 {
+    font-size: 13px;
+    color: var(--text-dim);
+    margin-bottom: 8px;
+    font-weight: 600;
+}
+.menu-options-row {
+    display: flex;
+    gap: 8px;
+}
+.menu-subitem-btn {
+    flex: 1;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    padding: 8px 0;
+    font-size: 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: 0.2s;
+    text-align: center;
+}
+.menu-subitem-btn:hover {
+    background: rgba(255,255,255,0.05);
+    color: var(--text);
+}
+.menu-subitem-btn.active {
+    background: var(--accent-glow);
+    border-color: var(--accent);
+    color: var(--accent);
+    font-weight: 700;
+}
+
+/* SIZE OVERRIDES */
+body.text-area-small .transcription-tray { height: 260px; min-height: 260px; }
+body.text-area-small .latest-line-window { height: 80px; min-height: 80px; }
+body.text-area-large .transcription-tray { height: 420px; min-height: 420px; }
+body.text-area-large .latest-line-window { height: 160px; min-height: 160px; }
+
+body.text-size-small .latest-text-content { font-size: 1.2rem; }
+body.text-size-large .latest-text-content { font-size: 2.4rem; }
+body.text-size-small .history-item { font-size: 12px; }
+body.text-size-large .history-item { font-size: 16px; }
+
+/* CAPTURE PREVIEW OVERRIDES */
+body.preview-hidden .debug-img { 
+    display: none !important; 
+}
+body.preview-hidden .tray-actions { 
+    height: auto; 
+    min-height: auto; 
+    padding-bottom: 24px;
+}
+body.preview-hidden .latest-line-window { 
+    height: auto !important; 
+    min-height: auto !important; 
+}
 
 .menu-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.5); backdrop-filter: blur(4px); z-index: 4000; display: none; opacity: 0; transition: opacity 0.3s; }
 .menu-backdrop.open { display: block; opacity: 1; }

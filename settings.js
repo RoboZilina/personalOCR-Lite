@@ -12,13 +12,25 @@ const defaultSettings = {
     autoCopy: true,
     showHeavyWarning: true,
     showMangaWarning: true,
-    theme: "dark",
+    theme: "auto",                // "auto", "dark", "light"
     historyVisible: true,
+    previewVisible: false,
     debug: false,
-    paddleLineCount: 3
+    paddleLineCount: 3,
+    textAreaSize: "standard",     // "small", "standard", "large"
+    textSize: "standard"          // "small", "standard", "large"
 };
 
 let currentSettings = { ...defaultSettings };
+
+// Listen for system theme changes and re-apply if in "auto" mode
+if (window.matchMedia) {
+    window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', (e) => {
+        if (currentSettings.theme === 'auto') {
+            applySettingsToUI();
+        }
+    });
+}
 
 /**
  * Loads settings from localStorage with fallback to defaults.
@@ -92,14 +104,15 @@ export function applySettingsToUI() {
     }
 
     // 3. Theme Toggle
-    if (currentSettings.theme === 'light') {
+    let effectiveTheme = currentSettings.theme;
+    if (effectiveTheme === 'auto') {
+        effectiveTheme = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+    }
+
+    if (effectiveTheme === 'light') {
         document.body.classList.add('light-theme');
     } else {
         document.body.classList.remove('light-theme');
-    }
-    const themeBtn = document.querySelector("#menu-theme") || document.querySelector("#theme-toggle");
-    if (themeBtn) {
-        themeBtn.textContent = 'Toggle Theme';
     }
 
     // 4. History Visibility
@@ -108,10 +121,28 @@ export function applySettingsToUI() {
         root.classList.toggle('history-hidden', !currentSettings.historyVisible);
     }
 
+    // 4.5 Capture Preview Visibility
+    document.body.classList.toggle('preview-hidden', String(currentSettings.previewVisible) === 'false');
+
     // Note: showHeavyWarning is used for logic, not a direct UI element usually,
     // but we can bind it if a checkbox exists in a settings menu.
     const warningCheckbox = document.querySelector("#heavy-warning-checkbox");
     if (warningCheckbox) warningCheckbox.checked = !currentSettings.showHeavyWarning;
+
+    // 5. Size modifiers via body classes
+    document.body.classList.remove('text-area-small', 'text-area-standard', 'text-area-large');
+    document.body.classList.add(`text-area-${currentSettings.textAreaSize}`);
+
+    document.body.classList.remove('text-size-small', 'text-size-standard', 'text-size-large');
+    document.body.classList.add(`text-size-${currentSettings.textSize}`);
+
+    // Update active highlight on menu buttons
+    document.querySelectorAll('.menu-subitem-btn[data-setting]').forEach(btn => {
+        const settingKey = btn.dataset.setting;
+        const val = btn.dataset.value;
+        const currentVal = currentSettings[settingKey];
+        btn.classList.toggle('active', String(currentVal) === val);
+    });
 }
 
 /**

@@ -60,11 +60,6 @@
                     <select id="tts-voice-select" class="ui-select" title="TTS Voice" style="max-width: 150px;">
                         <option value="">🔇 TTS Off</option>
                     </select>
-                    <div class="divider"></div>
-                    <div class="slider-group" title="Tesseract Upscaling Factor">
-                        <label>Scaling: <span id="upscale-val">2.0</span>x</label>
-                        <input type="range" id="upscale-slider" min="1" max="4" step="0.5" value="2.0">
-                    </div>
                 </div>
             </div>
             <div class="header-right">
@@ -295,12 +290,75 @@
         <div class="menu-header">
             <h3>Site Menu</h3>
         </div>
-        <button id="menu-theme" class="menu-item-btn" data-action="theme">Toggle Theme</button>
-        <button id="menu-auto" class="menu-item-btn" data-action="auto">Toggle Auto-Capture</button>
-        <button id="menu-copy" class="menu-item-btn" data-action="copy">Auto-Copy: ON</button>
+        <div class="menu-section">
+            <h4>Theme</h4>
+            <div class="menu-options-row">
+                <button class="menu-subitem-btn" data-setting="theme" data-value="auto">Auto</button>
+                <button class="menu-subitem-btn" data-setting="theme" data-value="dark">Dark</button>
+                <button class="menu-subitem-btn" data-setting="theme" data-value="light">Light</button>
+            </div>
+        </div>
+
+        <div class="menu-section">
+            <h4>Tesseract Upscale</h4>
+            <div class="slider-group" title="Tesseract Upscaling Factor" style="padding: 0; justify-content: space-between;">
+                <label style="width: auto;">Factor: <span id="upscale-val">2.0</span>x</label>
+                <input type="range" id="upscale-slider" min="1" max="4" step="0.5" value="2.0" style="width: 120px;">
+            </div>
+        </div>
+
+        <div class="menu-section">
+            <h4>Auto-Capture</h4>
+            <div class="menu-options-row">
+                <button class="menu-subitem-btn" data-setting="autoCapture" data-value="true">On</button>
+                <button class="menu-subitem-btn" data-setting="autoCapture" data-value="false">Off</button>
+            </div>
+        </div>
+
+        <div class="menu-section">
+            <h4>Auto-Copy</h4>
+            <div class="menu-options-row">
+                <button class="menu-subitem-btn" data-setting="autoCopy" data-value="true">On</button>
+                <button class="menu-subitem-btn" data-setting="autoCopy" data-value="false">Off</button>
+            </div>
+        </div>
+
+        <div class="menu-section">
+            <h4>History Panel</h4>
+            <div class="menu-options-row">
+                <button class="menu-subitem-btn" data-setting="historyVisible" data-value="true">Show</button>
+                <button class="menu-subitem-btn" data-setting="historyVisible" data-value="false">Hide</button>
+            </div>
+        </div>
+
+        <div class="menu-section" id="menu-capture-preview">
+            <h4>Capture Preview</h4>
+            <div class="menu-options-row">
+                <button class="menu-subitem-btn" data-setting="previewVisible" data-value="true">Show</button>
+                <button class="menu-subitem-btn" data-setting="previewVisible" data-value="false">Hide</button>
+            </div>
+        </div>
+
         <button id="menu-install" class="menu-item-btn" data-action="install">Install App</button>
-        <button id="menu-history" class="menu-item-btn" data-action="history">Show/Hide History</button>
         <button id="menu-guide" class="menu-item-btn" data-action="guide">User Guide</button>
+
+        <div class="menu-section">
+            <h4>Text Area Size</h4>
+            <div class="menu-options-row">
+                <button class="menu-subitem-btn" data-setting="textAreaSize" data-value="small">Small</button>
+                <button class="menu-subitem-btn" data-setting="textAreaSize" data-value="standard">Standard</button>
+                <button class="menu-subitem-btn" data-setting="textAreaSize" data-value="large">Large</button>
+            </div>
+        </div>
+
+        <div class="menu-section">
+            <h4>Text Size</h4>
+            <div class="menu-options-row">
+                <button class="menu-subitem-btn" data-setting="textSize" data-value="small">Small</button>
+                <button class="menu-subitem-btn" data-setting="textSize" data-value="standard">Standard</button>
+                <button class="menu-subitem-btn" data-setting="textSize" data-value="large">Large</button>
+            </div>
+        </div>
     </div>
     <div id="menu-backdrop" class="menu-backdrop"></div>
 

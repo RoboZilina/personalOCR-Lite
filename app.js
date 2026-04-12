@@ -149,6 +149,11 @@ async function switchEngineModular(id) {
         mangaNote.style.display = normalizedId === 'manga' ? 'flex' : 'none';
     }
 
+    const capturePreviewMenu = document.getElementById('menu-capture-preview');
+    if (capturePreviewMenu) {
+        capturePreviewMenu.style.display = normalizedId === 'manga' ? 'none' : 'block';
+    }
+
     // 2) Lock UI during transition
     if (engineSelector) engineSelector.disabled = true;
     if (modeSelector) modeSelector.disabled = true;
@@ -1755,11 +1760,7 @@ globalInitialize();
     const menuBtn = document.getElementById('menu-btn');
     const sideMenu = document.getElementById('side-menu');
     const menuBackdrop = document.getElementById('menu-backdrop');
-    const menuTheme = document.getElementById('menu-theme');
-    const menuAuto = document.getElementById('menu-auto');
-    const menuCopy = document.getElementById('menu-copy');
     const menuInstall = document.getElementById('menu-install');
-    const menuHistory = document.getElementById('menu-history');
     const menuGuide = document.getElementById('menu-guide');
 
     const openMenu = () => {
@@ -1779,29 +1780,6 @@ globalInitialize();
         if (e.key === 'Escape') closeMenu();
     });
 
-    if (menuTheme) menuTheme.onclick = () => {
-        const next = document.body.classList.contains('light-theme') ? 'dark' : 'light';
-        setSetting('theme', next);
-        applySettingsToUI();
-        closeMenu();
-    };
-
-    if (menuAuto) menuAuto.onclick = () => {
-        const at = document.getElementById('auto-capture-toggle');
-        if (at) at.click(); // Re-use existing toggle logic
-        closeMenu();
-    };
-
-    if (menuCopy) {
-        const updateCopyLabel = () => { menuCopy.textContent = getSetting('autoCopy') ? 'Auto-Copy: ON' : 'Auto-Copy: OFF'; };
-        updateCopyLabel();
-        menuCopy.onclick = () => {
-            setSetting('autoCopy', !getSetting('autoCopy'));
-            updateCopyLabel();
-            closeMenu();
-        };
-    }
-
     if (menuInstall) menuInstall.onclick = () => {
         const it = document.getElementById('install-btn');
         if (it) it.click();
@@ -1814,12 +1792,30 @@ globalInitialize();
         closeMenu();
     };
 
-    if (menuHistory) menuHistory.onclick = () => {
-        const next = !getSetting('historyVisible');
-        setSetting('historyVisible', next);
-        applySettingsToUI();
-        closeMenu();
-    };
+    const subItemBtns = document.querySelectorAll('.menu-subitem-btn');
+    if (subItemBtns) {
+        subItemBtns.forEach(btn => {
+            btn.onclick = (e) => {
+                const setting = btn.dataset.setting;
+                let val = btn.dataset.value;
+                if (setting && val) {
+                    if (val === "true") val = true;
+                    if (val === "false") val = false;
+                    
+                    setSetting(setting, val);
+                    
+                    // Specific toggle syncs for core logic if needed
+                    if (setting === 'autoCapture') {
+                        const at = document.getElementById('auto-capture-toggle');
+                        if (at && at.checked !== val) at.click();
+                    }
+                    
+                    applySettingsToUI();
+                    closeMenu();
+                }
+            };
+        });
+    }
 })();
 
 /** Public API Namespace (Auditability Phase) */
