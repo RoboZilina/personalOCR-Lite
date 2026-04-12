@@ -177,11 +177,13 @@ async function switchEngineModular(id) {
     }
 
     // 4) Instantiate new engine via factory
+    setOCRStatus('loading', `🟡 Initializing ${normalizedId.toUpperCase()}...`);
     const registryEntry = engines[normalizedId];
     if (!registryEntry) {
         console.error("[ENGINE-ERROR] No engine factory for:", normalizedId);
         if (engineSelector) engineSelector.disabled = false;
         if (modeSelector) modeSelector.disabled = false;
+        setOCRStatus('error', '🔴 Factory Missing');
         return;
     }
 
@@ -283,11 +285,16 @@ if (upscaleSlider) {
 function setOCRStatus(state, text) {
     if (!ocrStatus) return;
 
-    // Use internal state bridge to determine readiness (Instruction #2)
-    if (window.currentEngine && window.currentEngine.isLoaded === true) {
+    // Determine if the current engine is technically ready
+    const isEngineReady = (window.currentEngine && window.currentEngine.isLoaded === true);
+
+    // PRIORITY LOGIC:
+    // Only force the generic "READY" green status if the specific state requested is 'ready'.
+    // This allows 'processing' (Multi-Pass steps) and 'loading' (percentages) 
+    // to override the generic ready state even if the instance is technically loaded.
+    if (state === 'ready') {
         ocrStatus.className = 'status-pill ready';
-        // If we were just told we are ready, or if we were already ready, keep it green
-        ocrStatus.textContent = (state === 'ready') ? text : `🟢 ${window.currentEngineId.toUpperCase()} READY`;
+        ocrStatus.textContent = text || `🟢 ${window.currentEngineId?.toUpperCase() || 'OCR'} READY`;
     } else {
         ocrStatus.className = `status-pill ${state}`;
         ocrStatus.textContent = text;

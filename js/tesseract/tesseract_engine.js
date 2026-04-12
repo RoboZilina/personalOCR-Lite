@@ -24,7 +24,8 @@ export class TesseractEngine {
                 gzip: useGzip,
                 logger: m => {
                     if (m.status === 'loading language traineddata') {
-                        // Progress logging can be added here if needed in the future
+                        const pct = Math.round(m.progress * 100);
+                        if (window.setOCRStatus) window.setOCRStatus('loading', `🟡 Loading Data ${pct}%`);
                     }
                 }
             });
