@@ -436,7 +436,7 @@ body.light-theme .guide-card { background: #f1f5f9; border-color: #e2e8f0; }
     :root { --header-gap: 4px; }
     .header-left { gap: 5px; }
     #select-window-btn span { display: none; }
-    #select-window-btn::after { content: "Source"; }
+    #select-window-btn:not(.stop)::after { content: "Source"; }
     #ocr-status { font-size: 11px; padding: 4px 8px; }
 }
 
