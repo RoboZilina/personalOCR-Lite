@@ -99,6 +99,153 @@ const engines = {
     }
 };
 
+// ============================
+// EngineManager (Singleton)
+// Central source of truth for engine lifecycle and identity.
+// ============================
+
+const EngineManager = (() => {
+
+    // Internal state placeholders
+    let currentEngine = null;
+    let currentEngineId = null;
+    let currentLabel = null;
+    let currentCapabilities = {};
+    let currentInfo = {};
+    let engineState = 'idle'; // 'idle' | 'loading' | 'ready' | 'processing' | 'error'
+
+    // Status listeners (UI will subscribe later)
+    const statusListeners = new Set();
+    let isReady = false;
+
+    // Subscribe to status updates
+    function onStatusChange(listener) {
+        statusListeners.add(listener);
+        return () => statusListeners.delete(listener);
+    }
+
+    // Notify all listeners
+    function notifyStatus(state, text) {
+        engineState = state;
+        for (const fn of statusListeners) {
+            try { fn({ state, text, engineId: currentEngineId }); } catch {}
+        }
+    }
+
+    // Lifecycle: switching engines
+    async function switchEngine(registryEntry) {
+        await disposeEngine();
+        return await loadEngine(registryEntry);
+    }
+
+    async function loadEngine(registryEntry) {
+        currentEngineId = registryEntry.id || 'unknown';
+        currentLabel = registryEntry.id || null;
+        currentCapabilities = {
+            supportsModes: registryEntry.supportsModes || false,
+            supportsMultiPass: registryEntry.supportsMultiPass || false,
+            supportsLastResort: registryEntry.supportsLastResort || false
+        };
+        currentInfo = {
+            id: currentEngineId,
+            label: currentLabel,
+            capabilities: currentCapabilities
+        };
+        notifyStatus('loading', `🟡 Initializing ${currentLabel?.toUpperCase() || 'UNKNOWN'}...`);
+
+        try {
+            const deps = { reportStatus: notifyStatus }; 
+            currentEngine = registryEntry.factory(deps);
+
+            if (currentEngine && typeof currentEngine.load === 'function') {
+                await currentEngine.load();
+            }
+
+            isReady = true;
+            notifyStatus('ready', `🟢 ${currentLabel?.toUpperCase() || 'OCR'} READY`);
+            return currentEngine;
+        } catch (err) {
+            isReady = false;
+            notifyStatus('error', '🔴 Load Failed');
+            throw err;
+        }
+    }
+
+    async function disposeEngine() {
+        if (currentEngine && typeof currentEngine.dispose === 'function') {
+            try {
+                await currentEngine.dispose();
+            } catch (err) {
+                console.error('Engine dispose error:', err);
+            }
+        }
+        currentEngine = null;
+        currentEngineId = null;
+        currentLabel = null;
+        currentCapabilities = {};
+        currentInfo = {};
+        isReady = false;
+        notifyStatus('idle', 'Engine Disposed');
+    }
+
+    // Bridge for legacy code
+    function _syncEngine(engine, id) {
+        currentEngine = engine;
+        currentEngineId = id;
+    }
+
+    // Unified OCR entry point
+    async function runOCR(canvas, options = {}) {
+        const engine = currentEngine;
+        if (!engine || typeof engine.recognize !== 'function') {
+            notifyStatus('error', 'No engine available');
+            throw new Error('No engine available');
+        }
+
+        try {
+            notifyStatus('processing', 'Processing...');
+            const result = await engine.recognize(canvas, options);
+            notifyStatus('ready', 'Done');
+            return result;
+        } catch (err) {
+            notifyStatus('error', 'OCR failed');
+            throw err;
+        }
+    }
+
+    // Public state getter
+    function getState() {
+        return {
+            engineId: currentEngineId,
+            engineState,
+            isReady: engineState === 'ready',
+            hasEngine: !!currentEngine,
+        };
+    }
+
+    return {
+        switchEngine,
+        runOCR,
+        onStatusChange,
+        getState,
+        isReady: () => isReady,
+        getLabel: () => currentLabel,
+        getCapabilities: () => currentCapabilities,
+        getInfo: () => currentInfo,
+        // Temporary bridge for legacy code (removed later)
+        _getCurrentEngine: () => currentEngine,
+        _syncEngine,
+        _notifyStatus: notifyStatus,
+        loadEngine,
+        disposeEngine,
+    };
+
+})();
+
+// Temporary global bridge
+window.EngineManager = EngineManager;
+
+
 /** Global reference to the currently active modular engine */
 let currentEngine = null;
 let currentEngineId = null;      // normalized ID: "tesseract", "paddle"
@@ -1826,150 +1973,6 @@ window.VNOCR = {
     switchEngine: window.switchEngine
 };
 
-// ============================
-// EngineManager (Step 1 Skeleton Only)
-// Zero‑impact placeholder — NOT wired to anything yet
-// ============================
 
-const EngineManager = (() => {
-
-    // Internal state placeholders
-    let currentEngine = null;
-    let currentEngineId = null;
-    let currentLabel = null;
-    let currentCapabilities = {};
-    let currentInfo = {};
-    let engineState = 'idle'; // 'idle' | 'loading' | 'ready' | 'processing' | 'error'
-
-    // Status listeners (UI will subscribe later)
-    const statusListeners = new Set();
-    let isReady = false;
-
-    // Subscribe to status updates
-    function onStatusChange(listener) {
-        statusListeners.add(listener);
-        return () => statusListeners.delete(listener);
-    }
-
-    // Notify all listeners (placeholder)
-    function notifyStatus(state, text) {
-        engineState = state;
-        for (const fn of statusListeners) {
-            try { fn({ state, text, engineId: currentEngineId }); } catch {}
-        }
-    }
-
-    // Placeholder: switching engines
-    async function switchEngine(registryEntry) {
-        await disposeEngine();
-        return await loadEngine(registryEntry);
-    }
-
-    async function loadEngine(registryEntry) {
-        currentEngineId = registryEntry.id || 'unknown';
-        currentLabel = registryEntry.id || null;
-        currentCapabilities = {
-            supportsModes: registryEntry.supportsModes || false,
-            supportsMultiPass: registryEntry.supportsMultiPass || false,
-            supportsLastResort: registryEntry.supportsLastResort || false
-        };
-        currentInfo = {
-            id: currentEngineId,
-            label: currentLabel,
-            capabilities: currentCapabilities
-        };
-        _notifyStatus('loading', `🟡 Initializing ${currentLabel?.toUpperCase() || 'UNKNOWN'}...`);
-
-        try {
-            const deps = { reportStatus: _notifyStatus }; // IMPORTANT: use _notifyStatus
-            currentEngine = registryEntry.factory(deps);
-
-            if (currentEngine && typeof currentEngine.load === 'function') {
-                await currentEngine.load();
-            }
-
-            isReady = true;
-            _notifyStatus('ready', `🟢 ${currentLabel?.toUpperCase() || 'OCR'} READY`);
-            return currentEngine;
-        } catch (err) {
-            isReady = false;
-            _notifyStatus('error', '🔴 Load Failed');
-            throw err;
-        }
-    }
-
-    async function disposeEngine() {
-        if (currentEngine && typeof currentEngine.dispose === 'function') {
-            try {
-                await currentEngine.dispose();
-            } catch (err) {
-                console.error('Engine dispose error:', err);
-            }
-        }
-        currentEngine = null;
-        currentEngineId = null;
-        currentLabel = null;
-        currentCapabilities = {};
-        currentInfo = {};
-        isReady = false;
-        _notifyStatus('idle', 'Engine Disposed');
-    }
-
-    // Bridge for legacy code
-    function _syncEngine(engine, id) {
-        currentEngine = engine;
-        currentEngineId = id;
-    }
-
-    // Placeholder: unified OCR entry point
-    async function runOCR(canvas, options = {}) {
-        const engine = currentEngine;
-        if (!engine || typeof engine.recognize !== 'function') {
-            _notifyStatus('error', 'No engine available');
-            throw new Error('No engine available');
-        }
-
-        try {
-            _notifyStatus('processing', 'Processing...');
-            const result = await engine.recognize(canvas, options);
-            _notifyStatus('ready', 'Done');
-            return result;
-        } catch (err) {
-            _notifyStatus('error', 'OCR failed');
-            throw err;
-        }
-    }
-
-    // Public state getter
-    function getState() {
-        return {
-            engineId: currentEngineId,
-            engineState,
-            isReady: engineState === 'ready',
-            hasEngine: !!currentEngine,
-        };
-    }
-
-    return {
-        switchEngine,
-        runOCR,
-        onStatusChange,
-        getState,
-        isReady: () => isReady,
-        getLabel: () => currentLabel,
-        getCapabilities: () => currentCapabilities,
-        getInfo: () => currentInfo,
-        // Temporary bridge for legacy code (removed later)
-        _getCurrentEngine: () => currentEngine,
-        _syncEngine,
-        _notifyStatus: notifyStatus,
-        loadEngine,
-        disposeEngine,
-    };
-
-})();
-
-// Temporary global bridge (removed in final step)
-window.EngineManager = EngineManager;
 
 
