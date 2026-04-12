@@ -42,23 +42,12 @@ import { TesseractEngine } from './js/tesseract/tesseract_engine.js';
 import { PaddleOCR } from './js/paddle/paddle_engine.js';
 import { MangaOCREngine } from './js/manga/manga_engine.js';
 
-// Central State Mirror (Auditability Phase)
-const state = {
-    engine: null,
-    paddleLineCount: null,
-    mode: null,
-    ready: {
-        tesseract: false,
-        paddle: false
-    }
-};
-
 /** Unified Readiness API (Hardening Phase) */
 function isEngineReady(engine) {
-    if (engine === 'tesseract') return !!isOcrReady;
+    if (engine === 'tesseract') return EngineManager.isReady();
     const normalized = engine.replace(/_.+$/, "");
     if (normalized === 'paddle') {
-        return !!(currentEngine && currentEngine.id === 'paddle' && currentEngine.isLoaded);
+        return EngineManager.getInfo().id === 'paddle' && EngineManager.isReady();
     }
     return false;
 }
@@ -92,26 +81,20 @@ modeSelector.disabled = (engineSelector.value !== 'tesseract');
 
 const engines = {
     tesseract: {
-        factory: () => new TesseractEngine(),
+        factory: (deps) => new TesseractEngine({ reportStatus: deps.reportStatus }),
         supportsModes: true
     },
     paddle: {
-        factory: () => new PaddleOCR(
+        factory: (deps) => new PaddleOCR(
             './models/paddle/manifest.json',
             './js/onnx/',
-            (msg) => {
-                if (msg && msg.toLowerCase().includes("ready")) {
-                    setOCRStatus('ready', '🟢 PADDLE READY');
-                } else {
-                    setOCRStatus('loading', msg);
-                }
-            }
+            { reportStatus: deps.reportStatus }
         ),
         supportsModes: false
     },
     manga: {
         id: "manga",
-        factory: () => new MangaOCREngine(),
+        factory: (deps) => new MangaOCREngine({ reportStatus: deps.reportStatus }),
         supportsModes: false
     }
 };
@@ -159,25 +142,14 @@ async function switchEngineModular(id) {
     if (engineSelector) engineSelector.disabled = true;
     if (modeSelector) modeSelector.disabled = true;
 
-    // 3) Dispose previous engine if present
-    if (currentEngine && typeof currentEngine.dispose === "function") {
-        console.debug("[ENGINE-DEBUG] disposing previous engine:", currentEngine.id);
-        try {
-            await currentEngine.dispose();
-        } catch (err) {
-            console.error('Engine dispose error:', err);
-        }
-    }
-    
-    // 3.5) Toggle Manga Dashboard Layout
+    // 3) Toggle Manga Dashboard Layout
     const mainNode = document.querySelector('.app-main');
     if (mainNode) {
         if (normalizedId === 'manga') mainNode.classList.add('manga-layout');
         else mainNode.classList.remove('manga-layout');
     }
 
-    // 4) Instantiate new engine via factory
-    setOCRStatus('loading', `🟡 Initializing ${normalizedId.toUpperCase()}...`);
+    // 4) Delegate Lifecycle to EngineManager
     const registryEntry = engines[normalizedId];
     if (!registryEntry) {
         console.error("[ENGINE-ERROR] No engine factory for:", normalizedId);
@@ -187,22 +159,24 @@ async function switchEngineModular(id) {
         return;
     }
 
-    const newEngine = registryEntry.factory();
-    console.debug("[ENGINE-DEBUG] new engine instance created:", normalizedId);
+    engineReadyPromise = EngineManager.switchEngine({
+        ...registryEntry,
+        id: normalizedId
+    });
 
     try {
-        // 5) Begin loading and store readiness promise
-        engineReadyPromise = newEngine.load();
+        const newEngine = await engineReadyPromise;
 
-        // 6) Await readiness
-        await engineReadyPromise;
-
-        // 7) Commit engine
+        // Legacy sync
         currentEngine = newEngine;
-        console.debug("[ENGINE-DEBUG] engine after load:", currentEngine);
+        if (normalizedId === 'tesseract') {
+            window.ocrWorker = newEngine.worker;
+            window.isOcrReady = EngineManager.isReady();
+        }
     } catch (err) {
         console.error('Engine load error:', err);
         currentEngine = null;
+        if (normalizedId === 'tesseract') window.isOcrReady = false;
     }
 
     // 8) Restore UI state
@@ -211,8 +185,7 @@ async function switchEngineModular(id) {
         engineSelector.disabled = false;
     }
     if (modeSelector) {
-        const supportsModes = engines[normalizedId]?.supportsModes ?? true;
-        modeSelector.disabled = !supportsModes;
+        modeSelector.disabled = !EngineManager.getInfo().capabilities.supportsModes;
     }
 }
 
@@ -282,8 +255,20 @@ if (upscaleSlider) {
     };
 }
 
+// Step 2: Wire EngineManager (passive listener)
+EngineManager.onStatusChange(({ state, text }) => {
+    if (!ocrStatus) return;
+    ocrStatus.className = `status-pill ${state}`;
+    if (text) ocrStatus.textContent = text;
+});
+
 function setOCRStatus(state, text) {
     if (!ocrStatus) return;
+
+    // Step 4: Forward status to EngineManager
+    if (window.EngineManager && typeof EngineManager._notifyStatus === 'function') {
+        EngineManager._notifyStatus(state, text);
+    }
 
     // Determine if the current engine is technically ready
     const isEngineReady = (window.currentEngine && window.currentEngine.isLoaded === true);
@@ -456,8 +441,7 @@ async function preprocessForEngine(engineId, rawCanvas, mode, lineCount) {
 if (modeSelector) {
     modeSelector.addEventListener('change', () => {
         applyUIToSettings();
-        state.mode = modeSelector.value;
-        console.log('[State Mirror] Mode updated:', state.mode);
+        console.log('[Mode Select] Mode updated:', modeSelector.value);
     });
 }
 
@@ -692,7 +676,7 @@ if (autoToggle) {
             if (label) label.textContent = "auto re-capture ON";
             if (autoCaptureTimer) clearInterval(autoCaptureTimer);
             (async () => {
-                await switchEngineModular(currentEngineId || engineSelector?.value || "tesseract");
+                await switchEngineModular(EngineManager.getInfo().id || engineSelector?.value || "tesseract");
                 autoCaptureTimer = setInterval(checkAutoCapture, 500);
             })();
         } else {
@@ -937,7 +921,7 @@ async function captureFrame(rect) {
             if (!clean.width || !clean.height) continue;
 
             console.log("[SLICE-DEBUG] slice:", clean.width, "x", clean.height);
-            const { text } = await currentEngine.recognize(clean);
+            const { text } = await EngineManager.runOCR(clean);
             if (text && text.trim()) {
                 finalText += text.trim() + (engine === 'paddle' ? '\n' : ' ');
             }
@@ -975,7 +959,7 @@ async function captureFrame(rect) {
             const engine = engineSelector.value;
             if (engine.startsWith('paddle') && currentEngine?.id === 'paddle' && currentEngine?.isLoaded) {
                 setOCRStatus('ready', '🟢 PaddleOCR Ready');
-            } else if (isOcrReady && engine === 'tesseract') {
+            } else if (EngineManager.isReady() && engine === 'tesseract') {
                 setOCRStatus('ready', '🟢 OCR Ready');
             }
         }, 100);
@@ -1513,11 +1497,6 @@ function initSettings() {
         engineSelector.value = `paddle_${paddleLines}`;
     }
 
-    // Sync State Mirror (Initial)
-    state.engine = engineSelector.value;
-    state.mode = getSetting('ocrMode') || 'default_mini';
-    state.paddleLineCount = paddleLines;
-
     // Update guides if present (handled via drawSelectionRect indirectly)
     if (selectionRect) drawSelectionRect();
 }
@@ -1575,11 +1554,6 @@ engineSelector.addEventListener('change', async () => {
     // 4. Persist engine mode
     setSetting('ocrEngine', baseMode);
 
-    // Sync State Mirror
-    state.engine = engineSelector.value;
-    state.paddleLineCount = lineCount || state.paddleLineCount;
-    console.log('[State Mirror] Engine update:', state.engine);
-
     // 5. Switch engine using base mode only
     await switchEngineModular(rawValue);
 
@@ -1596,13 +1570,6 @@ document.getElementById('paddle-continue')?.addEventListener('click', async () =
 
     const count = getSetting('paddleLineCount') || 3;
     engineSelector.value = `paddle_${count}`;
-    
-    // Sync State Mirror
-    state.engine = engineSelector.value;
-    state.paddleLineCount = count;
-    
-    state.engine = engineSelector.value;
-    state.paddleLineCount = count;
     
     await switchEngineModular(`paddle_${count}`);
 
@@ -1629,7 +1596,6 @@ document.getElementById('manga-continue')?.addEventListener('click', async () =>
 
     engineSelector.value = 'manga';
     setSetting('ocrEngine', 'manga');
-    state.engine = 'manga';
     
     await switchEngineModular('manga');
 
@@ -1657,10 +1623,6 @@ document.getElementById('banner-switch-default')?.addEventListener('click', asyn
         modeSelector.disabled = false;
         modeSelector.value = 'default_mini';
     }
-
-    // Sync State Mirror
-    state.engine = 'tesseract';
-    state.mode = 'default_mini';
 
     // 3. Trigger the actual engine switch to unload Paddle and load Tesseract
     await switchEngineModular('tesseract');
@@ -1703,10 +1665,7 @@ async function globalInitialize() {
     
     if (modeSelector) {
         modeSelector.value = savedMode;
-        // Read supportsModes from registry — single source of truth for all engines
-        const normalizedSaved = savedEngine.replace(/_.+$/, '');
-        const supportsModes = engines[normalizedSaved]?.supportsModes ?? true;
-        modeSelector.disabled = !supportsModes;
+        modeSelector.disabled = !EngineManager.getInfo().capabilities.supportsModes;
     }
 
     // 4. Final Status Affirmation
@@ -1861,10 +1820,156 @@ globalInitialize();
 /** Public API Namespace (Auditability Phase) */
 window.VNOCR = {
     version: '1.3.3-gold',
-    state: state,
     isReady: isEngineReady,
     drawSelectionRect: window.drawSelectionRect,
     captureFrame: window.captureFrame,
     switchEngine: window.switchEngine
 };
+
+// ============================
+// EngineManager (Step 1 Skeleton Only)
+// Zero‑impact placeholder — NOT wired to anything yet
+// ============================
+
+const EngineManager = (() => {
+
+    // Internal state placeholders
+    let currentEngine = null;
+    let currentEngineId = null;
+    let currentLabel = null;
+    let currentCapabilities = {};
+    let currentInfo = {};
+    let engineState = 'idle'; // 'idle' | 'loading' | 'ready' | 'processing' | 'error'
+
+    // Status listeners (UI will subscribe later)
+    const statusListeners = new Set();
+    let isReady = false;
+
+    // Subscribe to status updates
+    function onStatusChange(listener) {
+        statusListeners.add(listener);
+        return () => statusListeners.delete(listener);
+    }
+
+    // Notify all listeners (placeholder)
+    function notifyStatus(state, text) {
+        engineState = state;
+        for (const fn of statusListeners) {
+            try { fn({ state, text, engineId: currentEngineId }); } catch {}
+        }
+    }
+
+    // Placeholder: switching engines
+    async function switchEngine(registryEntry) {
+        await disposeEngine();
+        return await loadEngine(registryEntry);
+    }
+
+    async function loadEngine(registryEntry) {
+        currentEngineId = registryEntry.id || 'unknown';
+        currentLabel = registryEntry.id || null;
+        currentCapabilities = {
+            supportsModes: registryEntry.supportsModes || false,
+            supportsMultiPass: registryEntry.supportsMultiPass || false,
+            supportsLastResort: registryEntry.supportsLastResort || false
+        };
+        currentInfo = {
+            id: currentEngineId,
+            label: currentLabel,
+            capabilities: currentCapabilities
+        };
+        _notifyStatus('loading', `🟡 Initializing ${currentLabel?.toUpperCase() || 'UNKNOWN'}...`);
+
+        try {
+            const deps = { reportStatus: _notifyStatus }; // IMPORTANT: use _notifyStatus
+            currentEngine = registryEntry.factory(deps);
+
+            if (currentEngine && typeof currentEngine.load === 'function') {
+                await currentEngine.load();
+            }
+
+            isReady = true;
+            _notifyStatus('ready', `🟢 ${currentLabel?.toUpperCase() || 'OCR'} READY`);
+            return currentEngine;
+        } catch (err) {
+            isReady = false;
+            _notifyStatus('error', '🔴 Load Failed');
+            throw err;
+        }
+    }
+
+    async function disposeEngine() {
+        if (currentEngine && typeof currentEngine.dispose === 'function') {
+            try {
+                await currentEngine.dispose();
+            } catch (err) {
+                console.error('Engine dispose error:', err);
+            }
+        }
+        currentEngine = null;
+        currentEngineId = null;
+        currentLabel = null;
+        currentCapabilities = {};
+        currentInfo = {};
+        isReady = false;
+        _notifyStatus('idle', 'Engine Disposed');
+    }
+
+    // Bridge for legacy code
+    function _syncEngine(engine, id) {
+        currentEngine = engine;
+        currentEngineId = id;
+    }
+
+    // Placeholder: unified OCR entry point
+    async function runOCR(canvas, options = {}) {
+        const engine = currentEngine;
+        if (!engine || typeof engine.recognize !== 'function') {
+            _notifyStatus('error', 'No engine available');
+            throw new Error('No engine available');
+        }
+
+        try {
+            _notifyStatus('processing', 'Processing...');
+            const result = await engine.recognize(canvas, options);
+            _notifyStatus('ready', 'Done');
+            return result;
+        } catch (err) {
+            _notifyStatus('error', 'OCR failed');
+            throw err;
+        }
+    }
+
+    // Public state getter
+    function getState() {
+        return {
+            engineId: currentEngineId,
+            engineState,
+            isReady: engineState === 'ready',
+            hasEngine: !!currentEngine,
+        };
+    }
+
+    return {
+        switchEngine,
+        runOCR,
+        onStatusChange,
+        getState,
+        isReady: () => isReady,
+        getLabel: () => currentLabel,
+        getCapabilities: () => currentCapabilities,
+        getInfo: () => currentInfo,
+        // Temporary bridge for legacy code (removed later)
+        _getCurrentEngine: () => currentEngine,
+        _syncEngine,
+        _notifyStatus: notifyStatus,
+        loadEngine,
+        disposeEngine,
+    };
+
+})();
+
+// Temporary global bridge (removed in final step)
+window.EngineManager = EngineManager;
+
 

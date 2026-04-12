@@ -1,9 +1,10 @@
 export class TesseractEngine {
-    constructor() {
+    constructor(options = {}) {
         this.id = 'tesseract';
         this.label = 'Tesseract';
         this.isLoaded = false;
         this.worker = null;
+        this.reportStatus = options.reportStatus || (() => {});
     }
 
     /**
@@ -25,7 +26,7 @@ export class TesseractEngine {
                 logger: m => {
                     if (m.status === 'loading language traineddata') {
                         const pct = Math.round(m.progress * 100);
-                        if (window.setOCRStatus) window.setOCRStatus('loading', `🟡 Loading Data ${pct}%`);
+                        this.reportStatus('loading', `🟡 Loading Data ${pct}%`);
                     }
                 }
             });

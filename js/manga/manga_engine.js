@@ -3,7 +3,7 @@
  * Industry-standard Encoder + Decoder architecture for autoregressive inference.
  */
 export class MangaOCREngine {
-    constructor() {
+    constructor(options = {}) {
         this.id = 'manga';
         this.label = 'MangaOCR';
         this.isLoaded = false;
@@ -11,6 +11,7 @@ export class MangaOCREngine {
         this.encoderSession = null;
         this.decoderSession = null;
         this.vocab = null;
+        this.reportStatus = options.reportStatus || (() => {});
 
         // Preprocessing constants — normalization stats loaded from preprocessor_config.json at runtime
         this.RESIZE_DIM = 224;
