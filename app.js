@@ -96,7 +96,6 @@ const engines = {
         readyStatus: '🟢 PaddleOCR Ready'
     },
     manga: {
-        id: "manga",
         factory: (deps) => new MangaOCREngine({ reportStatus: deps.reportStatus }),
         supportsModes: false,
         preprocess: async (canvas) => [canvas],
@@ -1068,6 +1067,12 @@ async function captureFrame(rect) {
         EngineManager.emitError(err);
     }
     finally {
+        // 6. Final Memory Hardening: Zero out the source crop
+        if (rawCropCanvas) {
+            rawCropCanvas.width = 0;
+            rawCropCanvas.height = 0;
+        }
+
         // Small cooldown to prevent rapid-fire re-triggering
         setTimeout(() => {
             isProcessing = false;
