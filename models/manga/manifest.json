@@ -1,0 +1,19 @@
+{
+  "encoder": {
+    "path": "encoder_model.onnx",
+    "remote_url": "https://github.com/RoboZilina/personalOCR/releases/latest/download/encoder_model.onnx"
+  },
+  "decoder": {
+    "path": "decoder_model.onnx",
+    "remote_url": "https://github.com/RoboZilina/personalOCR/releases/latest/download/decoder_model.onnx"
+  },
+  "vocab": {
+    "path": "vocab.json"
+  },
+  "config": {
+    "path": "config.json"
+  },
+  "preprocessor": {
+    "path": "preprocessor_config.json"
+  }
+}

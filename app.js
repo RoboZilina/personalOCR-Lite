@@ -150,7 +150,10 @@ const engines = {
         readyStatus: '🟢 PaddleOCR Ready'
     },
     manga: {
-        factory: (deps) => new MangaOCREngine({ reportStatus: deps.reportStatus }),
+        factory: (deps) => new MangaOCREngine(
+            './models/manga/manifest.json',
+            { reportStatus: deps.reportStatus }
+        ),
         supportsModes: false,
         defaultMode: null,
         preprocess: async (canvas) => {

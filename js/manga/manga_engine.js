@@ -4,15 +4,19 @@
  */
 import { isWebGPUSupported } from '../onnx/onnx_support.js';
 export class MangaOCREngine {
-    constructor(options = {}) {
+    constructor(manifestUrl, options = {}) {
         this.id = 'manga';
         this.label = 'MangaOCR';
+        this.manifestUrl = manifestUrl;
         this.isLoaded = false;
         
         this.encoderSession = null;
         this.decoderSession = null;
         this.vocab = null;
-        this.reportStatus = options.reportStatus || (() => {});
+        
+        // Support both legacy positional callback and modern options object
+        const finalOptions = (typeof options === 'object') ? options : { reportStatus: options };
+        this.reportStatus = finalOptions.reportStatus || (() => {});
 
         // Preprocessing constants — normalization stats loaded from preprocessor_config.json at runtime
         this.RESIZE_DIM = 224;
@@ -32,35 +36,46 @@ export class MangaOCREngine {
     /**
      * Initializes the dual ONNX sessions.
      */
-    async load(
-        encoderPath = './models/manga/encoder_model.onnx',
-        decoderPath = './models/manga/decoder_model.onnx',
-        vocabPath = './models/manga/vocab.json',
-        configPath = './models/manga/config.json',
-        preprocessorPath = './models/manga/preprocessor_config.json'
-    ) {
+    async load() {
         if (this.isLoaded && this.encoderSession && this.decoderSession) return;
+        
         try {
+            this.reportStatus('loading', '🟡 MangaOCR: loading manifest…');
+            const manifestRes = await fetch(this.manifestUrl);
+            const manifest = await manifestRes.json();
+            
+            const modelBase = "./models/manga/";
+
             // Enable WebGPU backend for MangaOCR when available (fallback to WASM).
             const useWebGPU = await isWebGPUSupported();
             const executionProviders = useWebGPU ? ['webgpu', 'wasm'] : ['wasm'];
 
             // Sequential Loading for UI Stability & Parallel Config Fetch
+            this.reportStatus('loading', '🟡 MangaOCR: loading configuration…');
             const [vocabRes, configRes, preprocRes] = await Promise.all([
-                fetch(vocabPath),
-                fetch(configPath),
-                fetch(preprocessorPath)
+                fetch(modelBase + manifest.vocab.path),
+                fetch(modelBase + manifest.config.path),
+                fetch(modelBase + manifest.preprocessor.path)
             ]);
 
             // Yield for UI paint
             await new Promise(r => setTimeout(r, 0));
+            
+            // Load Encoder
+            this.reportStatus('loading', '🟡 MangaOCR: loading encoder…');
+            const encoderPath = manifest.encoder.remote_url || (modelBase + manifest.encoder.path);
             this.encoderSession = await ort.InferenceSession.create(encoderPath, { executionProviders });
             console.log(`[ENGINE] MangaOCR Encoder — Active Backend: ${this.encoderSession.executionProvider || 'unknown'}`);
 
             // Yield for UI paint
             await new Promise(r => setTimeout(r, 0));
+            
+            // Load Decoder
+            this.reportStatus('loading', '🟡 MangaOCR: loading decoder…');
+            const decoderPath = manifest.decoder.remote_url || (modelBase + manifest.decoder.path);
             this.decoderSession = await ort.InferenceSession.create(decoderPath, { executionProviders });
             console.log(`[ENGINE] MangaOCR Decoder — Active Backend: ${this.decoderSession.executionProvider || 'unknown'}`);
+            
             this.vocab = await vocabRes.json();
 
             // Read token IDs from model config — never hardcode model-specific values
@@ -89,10 +104,11 @@ export class MangaOCREngine {
             }
 
             this.isLoaded = true;
-            console.debug("[MANGA-DEBUG] MangaOCR (Dual-Session) Ready.");
+            this.reportStatus('ready', '🟢 MangaOCR Ready');
         } catch (err) {
             console.error("[MANGA-ERROR] Engine Load Failed:", err);
             this.isLoaded = false;
+            this.reportStatus('error', '🔴 MangaOCR Load Failed');
             throw err;
         }
     }

@@ -56,8 +56,9 @@ export class PaddleOCR {
 
             // Load detection model
             this.reportStatus('loading', '🟡 PaddleOCR: loading detection model…');
+            const detPath = this.manifest.det.remote_url || (modelBase + this.manifest.det.path);
             let detBuffer = await fetchWithProgress(
-                modelBase + this.manifest.det.path,
+                detPath,
                 (p) => this.reportStatus('loading', `🟡 PaddleOCR: Loading ${(p * 50).toFixed(0)}%`)
             );
             this.detSession = await ort.InferenceSession.create(detBuffer, { executionProviders });
@@ -67,8 +68,9 @@ export class PaddleOCR {
 
             // Load recognition model
             this.reportStatus('loading', '🟡 PaddleOCR: loading recognition model…');
+            const recPath = this.manifest.rec.remote_url || (modelBase + this.manifest.rec.path);
             let recBuffer = await fetchWithProgress(
-                modelBase + this.manifest.rec.path,
+                recPath,
                 (p) => this.reportStatus('loading', `🟡 PaddleOCR: Loading ${(50 + p * 50).toFixed(0)}%`)
             );
             this.recSession = await ort.InferenceSession.create(recBuffer, { executionProviders });
