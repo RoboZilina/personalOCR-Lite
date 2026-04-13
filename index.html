@@ -2,6 +2,16 @@
 <html lang="ja">
 
 <head>
+    <script>
+        if ("serviceWorker" in navigator) {
+            navigator.serviceWorker.register("./service-worker.js").then((reg) => {
+                if (reg.active && !window.crossOriginIsolated) {
+                    // Force a reload once on first visit to activate COOP/COEP
+                    window.location.reload();
+                }
+            });
+        }
+    </script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Personal OCR — Master Dashboard</title>
@@ -62,11 +72,12 @@
                 </div>
             </div>
             <div class="header-right">
-                <div id="status-row" style="display:flex; align-items:center; gap:8px;">
-                    <div id="ocr-status" class="status-pill loading">🔴 Loading...</div>
-                    <span id="perf-icon" style="cursor:pointer; font-size:16px; user-select:none; margin-left: 4px;"></span>
-                </div>
-                <div id="perf-info" style="display:none; background:#fff8d6; border:1px solid #e0d27a; padding:8px 10px; margin-top:6px; font-size:12px; border-radius:6px; color: #856404; width: 100%; box-sizing: border-box;">
+                <div class="perf-status-container">
+                    <div id="status-row" style="display:flex; align-items:center; gap:8px;">
+                        <div id="ocr-status" class="status-pill loading">🔴 Loading...</div>
+                        <span id="perf-icon" class="perf-pill" title="Performance Diagnostics"></span>
+                    </div>
+                    <div id="perf-info" class="perf-diagnostic-box" style="display:none;"></div>
                 </div>
                 <button id="select-window-btn" class="btn primary"><span>Select Window Source</span></button>
             </div>
@@ -177,9 +188,11 @@
                     <p>Check the <strong>Performance Icon</strong> next to the status pill in the header to see your hardware status:</p>
                     <ul style="margin-bottom: 12px;">
                         <li><strong>🔥 High-Performance:</strong> WebGPU acceleration and Multi-threading are active. OCR will be lightning-fast.</li>
-                        <li><strong>⚠️ Compatibility Mode:</strong> The browser is running in a restricted sandbox. Performance may be slower as it falls back to CPU-only processing.</li>
+                        <li><strong>⚠️ Compatibility Mode:</strong> High-performance features are currently blocked by browser security sandboxing.</li>
                     </ul>
-                    <p><em>Tip: To unlock 🔥 mode, ensure your server headers include COOP/COEP protection.</em></p>
+                    <div style="margin-top: 10px; padding: 10px; background: rgba(16, 185, 129, 0.1); border-radius: 6px; border: 1px solid rgba(16, 185, 129, 0.2); font-size: 11px;">
+                        💡 <strong>GitHub Pages Tip:</strong> Because this is a static deployment, a <strong>manual page reload</strong> is required to activate the Service Worker and unlock WebGPU. Use the Diagnostic Table to verify your status.
+                    </div>
                 </div>
                 <div class="guide-card">
                     <h3>🔮 Image Processing Modes</h3>
@@ -205,8 +218,8 @@
                     <p style="margin-top:10px;">Choose your <strong>OCR Engine</strong> from the dropdown:</p>
                     <ul>
                         <li><strong>Tesseract:</strong> Classic OCR engine. Pairs with all Image Processing Modes (Default Mini, Adaptive, Multi-Pass, etc.). Optimized for low-latency standard text.</li>
-                        <li><strong>PaddleOCR:</strong> High-precision neural recognizer. Now features **WebGPU Acceleration** and **Zero-Allocation** memory pooling for zero-lag multi-line processing. Ideal for modern HD visual novels.</li>
-                        <li><strong>MangaOCR (Japanese):</strong> Premium Transformers model. Fully optimized with **WebGPU Shader Pre-Warming** to eliminate first-run stutter. Uses dedicated autoregressive buffers for smooth sentence generation. Downloads ~450 MB once, then runs perfectly offline.</li>
+                        <li><strong>PaddleOCR:</strong> High-precision neural recognizer. Powered by <strong>WebGPU Acceleration</strong> and <strong>Zero-Allocation</strong> memory pooling for lag-free multi-line processing. Ideal for modern HD visual novels.</li>
+                        <li><strong>MangaOCR (Japanese):</strong> Premium Transformers model. Fully optimized with <strong>WebGPU Shader Pre-Warming</strong> to eliminate stutter. Uses dedicated autoregressive buffers for smooth sentence generation. Runs entirely offline after first load.</li>
                     </ul>
                     <p style="font-size: 12px; opacity: 0.8; border-top: 1px solid var(--border); padding-top: 8px; margin-top: 10px;">
                         <em>When <strong>PaddleOCR</strong> or <strong>MangaOCR</strong> are selected, the Image Processing Mode dropdown is purposefully bypassed — they use their own high-fidelity pipelines optimized for neural network recognition. Switch back to <strong>Tesseract</strong> to use preprocessing modes again.</em>

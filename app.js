@@ -1,3 +1,4 @@
+window.VNOCR_BUILD = "webgpu";
 /*
   PERSONAL OCR HARDENING PHASE:
   DO NOT MODIFY the following functions during patches:
@@ -93,16 +94,47 @@ if (window.EngineManager) {
 // Phase 2: Lazy-load state initialization
 modeSelector.disabled = (engineSelector.value !== 'tesseract');
 
-// Performance Mode UI Initialization (Patch v2.1.9)
+// Performance Mode UI Initialization (Patch v2.1.12)
 if (perfIcon && perfInfo) {
-    if (self.crossOriginIsolated) {
+    const isIsolated = self.crossOriginIsolated;
+    const hasGPU = !!navigator.gpu;
+    const hasThreads = typeof SharedArrayBuffer !== 'undefined';
+    
+    // Build Diagnostic Table
+    let diagHtml = `
+        <div class="diag-header">System Diagnostics</div>
+        <table class="diag-table">
+            <tr><td>Isolation State</td><td class="${isIsolated ? 'diag-status-ok' : 'diag-status-fail'}">${isIsolated ? '✅ Active' : '❌ Restricted'}</td></tr>
+            <tr><td>WebGPU Support</td><td class="${hasGPU ? 'diag-status-ok' : 'diag-status-fail'}">${hasGPU ? '✅ Available' : '❌ Disabled'}</td></tr>
+            <tr><td>Multi-Threading</td><td class="${hasThreads ? 'diag-status-ok' : 'diag-status-fail'}">${hasThreads ? '✅ Active' : '❌ Fallback'}</td></tr>
+        </table>
+    `;
+
+    if (isIsolated) {
         perfIcon.textContent = "🔥";
-        perfInfo.textContent = "🚀 High-performance mode: active. GPU acceleration and multi-threading are enabled for maximum processing speed.";
-        console.log("[APP] Running in isolated mode (fast mode).");
+        perfIcon.classList.remove('warning');
+        perfInfo.innerHTML = `
+            ${diagHtml}
+            <div style="margin-top: 8px; font-size: 11px; opacity: 0.8;">🚀 <b>High-Performance Mode Active:</b> Your browser is fully optimized for neural inference.</div>
+        `;
+        perfInfo.style.display = "none"; // Hidden by default in high-perf mode
     } else {
         perfIcon.textContent = "⚠️";
-        perfInfo.textContent = "🐢 Compatibility mode: isolated environment features are unavailable. OCR performance is reduced.";
-        console.warn("[APP] Running in non-isolated mode (compatibility mode).");
+        perfIcon.classList.add('warning');
+        perfInfo.innerHTML = `
+            ${diagHtml}
+            <div class="diag-recommendation">
+                🐢 <b>Compatibility Mode:</b> High-performance features are currently blocked by browser security sandboxing.
+            </div>
+            <div style="margin-top: 12px; padding: 10px; background: rgba(16, 185, 129, 0.1); border-radius: 6px; border: 1px solid rgba(16, 185, 129, 0.2); font-size: 11px; color: #34d399;">
+                💡 <b>TIP:</b> Because this is a static deployment, a <b>manual page reload</b> is required to activate the Service Worker and unlock WebGPU.
+            </div>
+            <div style="margin-top: 10px; font-size: 11px; color: var(--text-dim);">
+                For the best performance with no reload required, use the Cloudflare version:
+            </div>
+            <a href="https://personal-ocr.pages.dev" target="_blank" class="btn-perf-version">Open High-Performance Version</a>
+        `;
+        perfInfo.style.display = "block"; // Always visible in Compatibility Mode
     }
 
     perfIcon.onclick = () => {

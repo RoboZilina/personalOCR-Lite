@@ -39,18 +39,31 @@ self.addEventListener('activate', (event) => {
     );
 });
 
+// === 5. Header Injection for WebGPU (GitHub Pages Compatibility) ===
+function withCOOP(response) {
+    if (!response || response.status === 0) return response;
+    const newHeaders = new Headers(response.headers);
+    newHeaders.set("Cross-Origin-Opener-Policy", "same-origin");
+    newHeaders.set("Cross-Origin-Embedder-Policy", "require-corp");
+    return new Response(response.body, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: newHeaders,
+    });
+}
+
 self.addEventListener('fetch', (event) => {
     const url = new URL(event.request.url);
 
     // 1. Bypass Service Worker for PaddleOCR model files (Large ONNX binaries)
     if (url.pathname.includes('/models/paddle/')) {
-        event.respondWith(fetch(event.request));
+        event.respondWith(fetch(event.request).then(withCOOP));
         return;
     }
 
     // 2. CDN requests: network-only
     if (url.origin !== location.origin) {
-        event.respondWith(fetch(event.request));
+        event.respondWith(fetch(event.request).then(withCOOP));
         return;
     }
 
@@ -59,10 +72,10 @@ self.addEventListener('fetch', (event) => {
         event.respondWith(
             caches.open(MODEL_CACHE_NAME).then(cache =>
                 cache.match(event.request).then(cached => {
-                    if (cached) return cached;
+                    if (cached) return withCOOP(cached);
                     return fetch(event.request).then(response => {
                         if (response.ok) cache.put(event.request, response.clone()).catch(() => {});
-                        return response;
+                        return withCOOP(response);
                     });
                 })
             )
@@ -78,10 +91,10 @@ self.addEventListener('fetch', (event) => {
                     if (response.ok) {
                         cache.put(event.request, response.clone()).catch(() => {});
                     }
-                    return response;
+                    return withCOOP(response);
                 }).catch(() => cached);
                 
-                return cached || fetched || new Response('Offline', { status: 503 });
+                return withCOOP(cached) || fetched || new Response('Offline', { status: 503 });
             })
         )
     );
