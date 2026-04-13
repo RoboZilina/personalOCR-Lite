@@ -674,7 +674,8 @@ async function startCapture() {
         videoStream.getVideoTracks()[0].onended = stopCapture;
         selectWindowBtn.classList.add('stop');
         selectWindowBtn.textContent = 'Stop Capture';
-        document.getElementById('placeholder')?.style.display = 'none';
+        const placeholder = document.getElementById('placeholder');
+        if (placeholder) placeholder.style.display = 'none';
         const hint = document.getElementById('selection-hint');
         if (hint) hint.classList.add('visible');
     } catch (err) {
@@ -687,7 +688,8 @@ function stopCapture() {
     videoStream = null; vnVideo.srcObject = null;
     if (autoCaptureTimer) { clearInterval(autoCaptureTimer); autoCaptureTimer = null; }
     if (stabilityTimer) { clearTimeout(stabilityTimer); stabilityTimer = null; }
-    document.getElementById('placeholder')?.style.display = 'flex';
+    const placeholder = document.getElementById('placeholder');
+    if (placeholder) placeholder.style.display = 'flex';
     const hint = document.getElementById('selection-hint');
     if (hint) hint.classList.remove('visible');
     selectWindowBtn.classList.remove('stop');
