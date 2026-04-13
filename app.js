@@ -1,3 +1,4 @@
+window.VNOCR_BUILD = "production";
 /*
   PERSONAL OCR HARDENING PHASE:
   DO NOT MODIFY the following functions during patches:
@@ -67,7 +68,7 @@ const upscaleVal = document.getElementById('upscale-val');
 const perfIcon = document.getElementById('perf-icon');
 const perfInfo = document.getElementById('perf-info');
 
-// === Throttling & Readiness State (Patch v2.1.9) ===
+// === Throttling & Readiness State (Patch v2.5) ===
 let captureLocked = false;
 let engineReady = false;
 
@@ -93,7 +94,7 @@ if (window.EngineManager) {
 // Phase 2: Lazy-load state initialization
 modeSelector.disabled = (engineSelector.value !== 'tesseract');
 
-// Performance Mode UI Initialization (Patch v2.1.9)
+// Performance Mode UI Initialization (Patch v2.5)
 if (perfIcon && perfInfo) {
     if (self.crossOriginIsolated) {
         perfIcon.textContent = "🔥";
@@ -814,7 +815,7 @@ if (selectionOverlay) {
         if (finalRect.width > 0.005) {
             selectionRect = finalRect;
             
-            // Throttled First Capture (Patch v2.1.9)
+            // Throttled First Capture (Patch v2.5)
             if (!captureLocked && engineReady) {
                 captureLocked = true;
                 updateCaptureButtonState();
@@ -1692,7 +1693,7 @@ if (refreshOcrBtn) {
     refreshOcrBtn.onclick = async () => {
         if (!selectionRect) return;
 
-        // Throttled Manual Capture (Patch v2.1.9)
+        // Throttled Manual Capture (Patch v2.5)
         if (captureLocked || !engineReady) {
             console.warn("[UI] Capture ignored — button is locked or engine not ready.");
             return;
@@ -2135,7 +2136,7 @@ globalInitialize();
 
 /** Public API Namespace (Auditability Phase) */
 window.VNOCR = {
-    version: '2.1.9',
+    version: '2.5',
     isReady: EngineManager.isReady,
     drawSelectionRect: window.drawSelectionRect,
     captureFrame: window.captureFrame,

@@ -20,7 +20,7 @@ export class PaddleOCR {
         this.isLoaded = false;
         this.initPromise = this.load();
 
-        // Hardening Patch v2.1.8: Pre-allocated buffer for zero-churn recognition
+        // Hardening Patch v2.5: Pre-allocated buffer for zero-churn recognition
         this.recognitionBuffer = null;
         this.recognitionBufferSize = 48 * 320 * 3;
     }

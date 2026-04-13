@@ -27,7 +27,7 @@ export class MangaOCREngine {
         this.BOS_TOKEN_ID = null;
         this.EOS_TOKEN_ID = null;
 
-        // Hardening Patch v2.1.8: Decoder Buffer Reuse
+        // Hardening Patch v2.5: Decoder Buffer Reuse
         this.decoderTokenBuffer = null;
         this.decoderLogitsBuffer = null;
         this.decoderMaxLength = 256; 

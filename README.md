@@ -1,48 +1,26 @@
-# VN-OCR — Hardened Baseline (v2.1.9)
+# VN-OCR — Hardened Baseline (v2.5-production)
 
-A high-performance, browser-only Japanese OCR suite for Japanese Media. No installation, no backend, and uncompromising privacy.
+A high-performance, browser-only Japanese OCR suite for Japanese Media. This branch is optimized for **Cloudflare Pages** deployment.
 
-## v2.1.9: The Hardware Acceleration & Hardening Milestone
-This version represents the final production stabilization pass. The focus was on eliminating latency via **WebGPU Shader Pre-Warming**, reducing memory pressure through **Zero-Copy Buffer Pooling**, and providing transparent **Hardware Diagnostics** to the user.
+## v2.5: The WebGPU Production Milestone
+This version represents the high-performance production baseline. It features native **WebGPU acceleration** for PaddleOCR and MangaOCR, supported by Cloudflare's edge headers for seamless hardware access.
 
 ## Features
-- **WebGPU Acceleration (v2)** — Native GPU-accelerated inference for PaddleOCR and MangaOCR, featuring automated shader pre-warming to eliminate first-run compilation lag.
-- **Zero-Allocation Memory Architecture** — Every inference loop (Paddle/Manga) now utilizes pre-allocated, hardware-aligned memory pools. This eliminates garbage collection churn and ensures smooth 60FPS UI performance during OCR.
-- **Surgical Noise Filtering** — Real-time detection filtering (1600px area threshold) that prevents background artifacts from triggering redundant recognition passes.
-- **Deterministic Capture Throttling** — Intelligent 300ms cooldown and engine-readiness guards prevent race conditions and redundant processing.
-- **Global Defensive Architecture** — Deterministic state restoration that guarantees a valid UI state regardless of `localStorage` conditions.
-- **Multi-Pass Analyst (v2)** — Hardened consensus voting for Tesseract. Runs 5 preprocessing passes and picks the most accurate read based on Japanese density.
-- **Performance Diagnostics** — Visual 🔥/⚠️ indicators that signal whether the browser is running in High-Performance mode (SharedArrayBuffer + WebGPU active).
-- **Explicit Memory Disposal** — Real-time zeroing of pixel buffers (`canvas.width = 0`) after every inference pass to prevent heap accumulation.
-    > [!IMPORTANT]
-    > **Core Purity**: When using MangaOCR or PaddleOCR, the application automatically bypasses the image preprocessors to feed raw, high-fidelity pixels directly into the neural network's internal pipeline.
-- **Adjustable UI Sizes** — Customize Text Area and Font sizes (Standard/Small/Large) for ideal readability in the side menu.
-- **8 image preprocessing modes** for Tesseract-based OCR (Adaptive, Multi-Pass, Last Resort, etc.).
-- **Auto-capture** with pixel-level change detection and stabilization delay.
-- **History log** with per-line copy/speak buttons, persisted across sessions.
-- **Seamless Support** — One-click "Contact / Report Issue" link in the side menu.
+- **Native WebGPU Acceleration** — GPU-accelerated inference for PaddleOCR and MangaOCR, enabled via native `_headers` configuration.
+- **Shader Pre-Warming** — Automated JIT compilation of shaders during engine load to eliminate first-run recognition stutter.
+- **Zero-Allocation Memory Architecture** — Every inference loop uses pre-allocated, hardware-aligned memory pools. This ensures smooth 60FPS UI performance and prevents Garbage Collection spikes.
+- **Deterministic State Restoration** — Hardened state logic that guarantees a stable UI regardless of `localStorage` state.
+- **Surgical Noise Filtering** — Real-time detection filtering (1600px area threshold) to prevent background artifacts from triggering recognition.
+- **Multi-Pass Analyst (v2)** — Hardened consensus voting for Tesseract. Runs 5 preprocessing passes and picks the most accurate read.
+- **Subtle Performance Telemetry** — Minimalist 🔥/⚠️ indicator in the header to confirm that Cross-Origin Isolation and WebGPU are legally active.
 
-## Hosting
-Upload all project files to any static web host (GitHub Pages, Netlify, itch.io):
-- `index.html`, `styles.css`, `app.js`
-- `manifest.json`, `service-worker.js`
-- `icon-192.png`, `icon-512.png`
-
-**Deployment note:** Serve `service-worker.js` with `Cache-Control: no-cache` to ensure version updates (like this v2.1.0 release) propagate to all users instantly.
-
-## Preprocessing Modes (Tesseract Engine Only)
-
-| Mode | UI Label | Best For |
-|---|---|---|
-| Default Mini | `Default Mini` | Balanced speed/accuracy — the recommended baseline. |
-| Default Full | `Default Full` | Maximum fidelity — best for classic or low-res VNs. |
-| Adaptive | `Adaptive` | VN-optimized — handles gradients and semi-transparent text boxes. |
-| Multi-Pass | `Multi-Pass` | Runs 5 combos and votes for best result — slower but very reliable. |
-| Last Resort | `Last Resort` | 7-pass nuclear option with stroke reconstruction. |
-| Raw | `Raw` | No preprocessing — direct capture for testing. |
+## Hosting on Cloudflare Pages
+This branch is "Cloudflare-Ready" out of the box. 
+1. **Headers**: Uses the root `_headers` file to set `Cross-Origin-Embedder-Policy: require-corp` and `Cross-Origin-Opener-Policy: same-origin`.
+2. **Assets**: Ensure `service-worker.js` is served with `Cache-Control: no-cache`.
+3. **No Shim Required**: Unlike the GitHub Pages version, this deployment does **not** require a Service Worker hack or auto-reloads. Performance is available immediately on page load.
 
 ## Tips
-- **Neutral Engine Bypassing:** When using **PaddleOCR** or **MangaOCR**, changing the "Image Processing Mode" has no effect. These engines are pre-calibrated to work with the raw capture area.
-- Start with **Default Mini** for Tesseract. It is optimized for modern web-based and high-resolution media.
-- Use **Scaling 3×** or **4×** for very small or highly packed text.
-- Use `?no-sw` in the URL to bypass the service worker if you suspect a cache-related issue.
+- **Check the 🔥**: If you see the Fire icon in the top right, your browser has successfully unlocked WebGPU and Multi-threading.
+- **Engine Bypassing**: When using **PaddleOCR** or **MangaOCR**, image processing modes are bypassed to ensure the neural networks receive high-fidelity raw pixels.
+- Use **Scaling 3×** or **4×** for low-resolution or small-font media.

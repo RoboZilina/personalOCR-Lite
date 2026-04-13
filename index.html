@@ -199,14 +199,14 @@
                     <h3>🔍 Scaling &amp; OCR Engine</h3>
                     <p>Adjust the <strong>Scaling</strong> slider to upscale the capture before OCR:</p>
                     <ul>
-                        <li><strong>1x – 2x:</strong> Good for standard 1080p content with clear, large fonts.</li>
-                        <li><strong>3x – 4x:</strong> Use for 720p content or tiny packed dialogue boxes.</li>
+                        <li><strong>1x – 2x:</strong> Standard 1080p content.</li>
+                        <li><strong>3x – 4x:</strong> Small or highly packed dialogue boxes.</li>
                     </ul>
-                    <p style="margin-top:10px;">Choose your <strong>OCR Engine</strong> from the dropdown:</p>
+                    <p style="margin-top:10px;">Choose your <strong>OCR Engine</strong>:</p>
                     <ul>
-                        <li><strong>Tesseract:</strong> Classic OCR engine. Pairs with all Image Processing Modes (Default Mini, Adaptive, Multi-Pass, etc.). Optimized for low-latency standard text.</li>
-                        <li><strong>PaddleOCR:</strong> High-precision neural recognizer. Now features **WebGPU Acceleration** and **Zero-Allocation** memory pooling for zero-lag multi-line processing. Ideal for modern HD visual novels.</li>
-                        <li><strong>MangaOCR (Japanese):</strong> Premium Transformers model. Fully optimized with **WebGPU Shader Pre-Warming** to eliminate first-run stutter. Uses dedicated autoregressive buffers for smooth sentence generation. Downloads ~450 MB once, then runs perfectly offline.</li>
+                        <li><strong>Tesseract:</strong> Classic engine. Optimized for low-latency standard text.</li>
+                        <li><strong>PaddleOCR:</strong> High-precision neural recognizer. Powered by <strong>WebGPU Acceleration</strong> and <strong>Zero-Allocation</strong> memory pooling.</li>
+                        <li><strong>MangaOCR (Japanese):</strong> Premium Transformers model. Optimized with <strong>WebGPU Shader Pre-Warming</strong> to eliminate stutter.</li>
                     </ul>
                     <p style="font-size: 12px; opacity: 0.8; border-top: 1px solid var(--border); padding-top: 8px; margin-top: 10px;">
                         <em>When <strong>PaddleOCR</strong> or <strong>MangaOCR</strong> are selected, the Image Processing Mode dropdown is purposefully bypassed — they use their own high-fidelity pipelines optimized for neural network recognition. Switch back to <strong>Tesseract</strong> to use preprocessing modes again.</em>
