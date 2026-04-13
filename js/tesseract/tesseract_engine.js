@@ -15,13 +15,15 @@ export class TesseractEngine {
         if (this.isLoaded && this.worker) return;
 
         try {
-            // Configuration for jpn_best as per legacy app.js logic
-            const langPath = 'https://cdn.jsdelivr.net/gh/tesseract-ocr/tessdata_best@4.0.0/';
+            // Configuration for strictly local operation (Lite Version)
+            const langPath = './models/';
             const useGzip = false;
             const actualLang = 'jpn';
 
             this.worker = await Tesseract.createWorker(actualLang, 1, {
                 langPath: langPath,
+                workerPath: './js/tesseract/worker.min.js',
+                corePath: './js/tesseract/tesseract-core.wasm.js',
                 gzip: useGzip,
                 logger: m => {
                     if (m.status === 'loading language traineddata') {

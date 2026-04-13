@@ -15,12 +15,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PersonalOCR Lite — Master Dashboard</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin="anonymous">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet" crossorigin="anonymous">
+    <!-- Local Font Fallback (Lite Version) -->
     <link rel="stylesheet" href="styles.css">
     <link rel="manifest" href="manifest.json">
     <meta http-equiv="Content-Security-Policy"
-        content="script-src 'self' https://cdn.jsdelivr.net 'wasm-unsafe-eval' 'unsafe-inline'; connect-src 'self' blob: https://cdn.jsdelivr.net https://fastly.jsdelivr.net https://tessdata.projectnaptha.com data: https://github.com https://objects.githubusercontent.com; worker-src 'self' blob:;">
+        content="script-src 'self' 'wasm-unsafe-eval' 'unsafe-inline'; connect-src 'self' blob:; worker-src 'self' blob:;">
     <link rel="icon" href="icon-192.png">
 </head>
 
@@ -363,8 +362,7 @@
 
     <!-- Scripts at the end of body -->
     <script src="./js/onnx/ort.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.0/dist/tesseract.min.js"
-        crossorigin="anonymous"></script>
+    <script src="./js/tesseract/tesseract.min.js"></script>
     <script type="module" src="app.js"></script>
 </body>
 

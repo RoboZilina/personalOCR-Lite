@@ -36,7 +36,7 @@ export class PaddleOCR {
             const res = await fetch(this.manifestUrl);
             this.manifest = await res.json();
 
-            // Standardize model base path (Lite Version: Flat ./models/ directory)
+            // Enforce strictly local model base path (Lite Version: Flat ./models/ directory)
             const modelBase = "./models/";
 
             if (this.manifest.normalize) {
@@ -56,7 +56,8 @@ export class PaddleOCR {
 
             // Load detection model
             this.reportStatus('loading', '🟡 PaddleOCR: loading detection model…');
-            const detPath = this.manifest.det.remote_url || (modelBase + this.manifest.det.path);
+            // Load detection model strictly from local models folder
+            const detPath = modelBase + this.manifest.det.path;
             let detBuffer = await fetchWithProgress(
                 detPath,
                 (p) => this.reportStatus('loading', `🟡 PaddleOCR: Loading ${(p * 50).toFixed(0)}%`)
@@ -68,7 +69,8 @@ export class PaddleOCR {
 
             // Load recognition model
             this.reportStatus('loading', '🟡 PaddleOCR: loading recognition model…');
-            const recPath = this.manifest.rec.remote_url || (modelBase + this.manifest.rec.path);
+            // Load recognition model strictly from local models folder
+            const recPath = modelBase + this.manifest.rec.path;
             let recBuffer = await fetchWithProgress(
                 recPath,
                 (p) => this.reportStatus('loading', `🟡 PaddleOCR: Loading ${(50 + p * 50).toFixed(0)}%`)

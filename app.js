@@ -2028,8 +2028,8 @@ globalInitialize();
     };
 
     if (menuContact) menuContact.onclick = () => {
-        console.debug("[MENU] Opening GitHub Issues Page...");
-        window.open('https://github.com/RoboZilina/personalOCR/issues/new', '_blank');
+        console.debug("[MENU] GitHub Link Disabled (Lite Build)");
+        alert("PersonalOCR Lite: External links are disabled in this isolated build.");
         closeMenu();
     };
 
