@@ -1,6 +1,6 @@
 // Shared canvas to reduce GC pressure
 const sharedCanvas = document.createElement('canvas');
-const sharedCtx = sharedCanvas.getContext('2d');
+const sharedCtx = sharedCanvas.getContext('2d', { willReadFrequently: true });
 
 // Pre-allocated buffers for common OCR sizes to reduce allocation churn
 let detInputBuffer = null;
@@ -37,31 +37,29 @@ export async function fetchWithProgress(url, onProgress) {
     return buffer;
 }
 
-// canvas: HTMLCanvasElement, inputSize: [H, W], normalize: { mean: number[], std: number[] }
-export function canvasToFloat32Tensor(canvas, inputSize, normalize) {
+// canvas: HTMLCanvasElement, inputSize: [H, W], normalize: { mean: number[], std: number[] }, outBuffer: Float32Array (optional)
+export function canvasToFloat32Tensor(canvas, inputSize, normalize, outBuffer) {
     if (!canvas || !inputSize || !normalize) return null;
     
     try {
         const [targetH, targetW] = inputSize;
         
-        // Clear shared canvas
+        // ... (Canvas drawing logic omitted for brevity in preview, but kept in actual tool call) ...
         sharedCanvas.width = targetW;
         sharedCanvas.height = targetH;
-        sharedCtx.fillStyle = '#000000'; // Black padding (Trial A)
+        sharedCtx.fillStyle = '#000000';
         sharedCtx.fillRect(0, 0, targetW, targetH);
 
-        // Aspect-ratio preserve resize for recognition
         if (targetH === 48) {
             const scale = targetH / canvas.height;
             const resW = Math.min(targetW, Math.round(canvas.width * scale));
             sharedCtx.drawImage(canvas, 0, 0, canvas.width, canvas.height, 0, 0, resW, targetH);
         } else {
-            // Standard stretch for detection models
             sharedCtx.drawImage(canvas, 0, 0, targetW, targetH);
         }
 
         const imageData = sharedCtx.getImageData(0, 0, targetW, targetH);
-        const { data } = imageData; // Uint8ClampedArray
+        const { data } = imageData;
 
         const mean = normalize.mean;
         const std = normalize.std;
@@ -69,7 +67,10 @@ export function canvasToFloat32Tensor(canvas, inputSize, normalize) {
         // Determine which buffer to use
         let chw;
         const size = 3 * targetH * targetW;
-        if (targetH === 960 && targetW === 960) {
+        
+        if (outBuffer) {
+            chw = outBuffer;
+        } else if (targetH === 960 && targetW === 960) {
             if (!detInputBuffer) detInputBuffer = new Float32Array(size);
             chw = detInputBuffer;
         } else if (targetH === 48 && targetW === 320) {
@@ -87,17 +88,17 @@ export function canvasToFloat32Tensor(canvas, inputSize, normalize) {
                 const g = data[i + 1] / 255;
                 const b = data[i + 2] / 255;
 
-                // Trial A: BGR color order [B, G, R]
                 chw[0 * targetH * targetW + idx] = (b - mean[2]) / std[2];
                 chw[1 * targetH * targetW + idx] = (g - mean[1]) / std[1];
                 chw[2 * targetH * targetW + idx] = (r - mean[0]) / std[0];
-
                 idx++;
             }
         }
 
-        // Always return a copy when using shared buffers to prevent
-        // data corruption if ORT holds a reference during multi-box recognition.
+        // If outBuffer was injected, we return it as is (Zero-Copy)
+        if (outBuffer) return chw;
+
+        // Fallback for internal shared buffers (Legacy Copy logic)
         if (chw === detInputBuffer || chw === recInputBuffer) {
             return chw.slice();
         }
@@ -172,13 +173,17 @@ export async function runPaddleOCR(paddle, canvas, updateStatus) {
 
     try {
         updateStatus('PaddleOCR: detecting text…');
+        // Yield for UI paint
+        await new Promise(r => setTimeout(r, 0));
         const { boxes } = await paddle.detect(canvas);
 
         if (!boxes || boxes.length === 0) {
             return [];
         }
 
-        updateStatus(`PaddleOCR: recognizing ${boxes.length} regions…`);
+        updateStatus(`PaddleOCR: recognizing ${boxes.length} line(s)…`);
+        // Yield for UI paint
+        await new Promise(r => setTimeout(r, 0));
 
         const results = [];
         for (const box of boxes) {

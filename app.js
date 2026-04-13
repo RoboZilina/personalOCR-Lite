@@ -64,9 +64,51 @@ const autoToggle = document.getElementById('auto-capture-toggle');
 const autoCaptureBtn = document.getElementById('auto-capture-btn');
 const upscaleSlider = document.getElementById('upscale-slider');
 const upscaleVal = document.getElementById('upscale-val');
+const perfIcon = document.getElementById('perf-icon');
+const perfInfo = document.getElementById('perf-info');
+
+// === Throttling & Readiness State (Patch v2.1.9) ===
+let captureLocked = false;
+let engineReady = false;
+
+function updateCaptureButtonState() {
+    if (!refreshOcrBtn) return;
+    const shouldBeDisabled = !engineReady || captureLocked;
+    refreshOcrBtn.disabled = shouldBeDisabled;
+    refreshOcrBtn.classList.toggle('disabled', shouldBeDisabled);
+}
+
+// Hook into EngineManager Lifecycle
+if (window.EngineManager) {
+    EngineManager.onReady(() => {
+        engineReady = true;
+        updateCaptureButtonState();
+    });
+    EngineManager.onLoading(() => {
+        engineReady = false;
+        updateCaptureButtonState();
+    });
+}
 
 // Phase 2: Lazy-load state initialization
 modeSelector.disabled = (engineSelector.value !== 'tesseract');
+
+// Performance Mode UI Initialization (Patch v2.1.9)
+if (perfIcon && perfInfo) {
+    if (self.crossOriginIsolated) {
+        perfIcon.textContent = "🔥";
+        perfInfo.textContent = "🚀 High-performance mode: active. GPU acceleration and multi-threading are enabled for maximum processing speed.";
+        console.log("[APP] Running in isolated mode (fast mode).");
+    } else {
+        perfIcon.textContent = "⚠️";
+        perfInfo.textContent = "🐢 Compatibility mode: isolated environment features are unavailable. OCR performance is reduced.";
+        console.warn("[APP] Running in non-isolated mode (compatibility mode).");
+    }
+
+    perfIcon.onclick = () => {
+        perfInfo.style.display = (perfInfo.style.display === "none") ? "block" : "none";
+    };
+}
 
 // ==========================================
 // NEW: Modular Engine Registry (Roadmap Phase)
@@ -768,8 +810,20 @@ if (selectionOverlay) {
         const hint = document.getElementById('selection-hint');
         if (finalRect.width > 0.005) {
             selectionRect = finalRect;
-            refreshOcrBtn.disabled = false;
-            captureFrame(selectionRect);
+            
+            // Throttled First Capture (Patch v2.1.9)
+            if (!captureLocked && engineReady) {
+                captureLocked = true;
+                updateCaptureButtonState();
+                
+                captureFrame(selectionRect).finally(() => {
+                    setTimeout(() => {
+                        captureLocked = false;
+                        updateCaptureButtonState();
+                    }, 300);
+                });
+            }
+
             if (hint) hint.classList.remove('visible');
         } else {
             selectionRect = null;
@@ -1631,7 +1685,30 @@ if (clearHistoryBtn) {
     };
 }
 
-if (refreshOcrBtn) refreshOcrBtn.onclick = () => { if (selectionRect) captureFrame(selectionRect); };
+if (refreshOcrBtn) {
+    refreshOcrBtn.onclick = async () => {
+        if (!selectionRect) return;
+
+        // Throttled Manual Capture (Patch v2.1.9)
+        if (captureLocked || !engineReady) {
+            console.warn("[UI] Capture ignored — button is locked or engine not ready.");
+            return;
+        }
+
+        captureLocked = true;
+        updateCaptureButtonState();
+
+        try {
+            await captureFrame(selectionRect);
+        } finally {
+            // Standard UX Cooldown
+            setTimeout(() => {
+                captureLocked = false;
+                updateCaptureButtonState();
+            }, 300);
+        }
+    };
+}
 if (autoCaptureBtn) autoCaptureBtn.onclick = () => autoToggle?.click();
 
 function openUserGuide() {
@@ -2055,7 +2132,7 @@ globalInitialize();
 
 /** Public API Namespace (Auditability Phase) */
 window.VNOCR = {
-    version: '2.1.2',
+    version: '2.1.9',
     isReady: EngineManager.isReady,
     drawSelectionRect: window.drawSelectionRect,
     captureFrame: window.captureFrame,

@@ -1,21 +1,21 @@
-# VN-OCR — Hardened Milestone (v2.1.2)
+# VN-OCR — Hardened Baseline (v2.1.9)
 
 A high-performance, browser-only Japanese OCR suite for Japanese Media. No installation, no backend, and uncompromising privacy.
 
-## v2.1.2: The Persistence & Consensus Milestone
-This version represents a major architectural milestone focused on **Multi-Pass Consensus** and **Neural Baseline Calibration**. The application is now hardened with deterministic decision-making (The Analyst), specialized neural preprocessing, and robust memory management.
+## v2.1.9: The Hardware Acceleration & Hardening Milestone
+This version represents the final production stabilization pass. The focus was on eliminating latency via **WebGPU Shader Pre-Warming**, reducing memory pressure through **Zero-Copy Buffer Pooling**, and providing transparent **Hardware Diagnostics** to the user.
 
 ## Features
-- **ONNX Runtime Web Integration** — Native in-browser inference for advanced neural networks (PaddleOCR & MangaOCR) via a custom optimized VED pipeline.
+- **WebGPU Acceleration (v2)** — Native GPU-accelerated inference for PaddleOCR and MangaOCR, featuring automated shader pre-warming to eliminate first-run compilation lag.
+- **Zero-Allocation Memory Architecture** — Every inference loop (Paddle/Manga) now utilizes pre-allocated, hardware-aligned memory pools. This eliminates garbage collection churn and ensures smooth 60FPS UI performance during OCR.
+- **Surgical Noise Filtering** — Real-time detection filtering (1600px area threshold) that prevents background artifacts from triggering redundant recognition passes.
+- **Deterministic Capture Throttling** — Intelligent 300ms cooldown and engine-readiness guards prevent race conditions and redundant processing.
 - **Global Defensive Architecture** — Deterministic state restoration that guarantees a valid UI state regardless of `localStorage` conditions.
-- **Modular Engine Registry** — Fully decoupled OCR backend (Tesseract, PaddleOCR, MangaOCR) allowing for seamless engine switching and unified readiness reporting.
-- **Multi-Pass Analyst (v2)** — Hardened consensus voting. Runs 5 preprocessing passes and calculates a "Weight Score" based on Japanese character density and OCR confidence to pick the most accurate read.
-- **Neural Baseline Stabilization** — Specialized pre-inference logic for neutral tracks.
-    - **MangaOCR**: 8px safety padding + fixed-strength sharpening to define line art.
-    - **PaddleOCR**: Real-time "Density Gating" to filter out background hallucinations.
-- **Explicit Memory Disposal** — Real-time zeroing of pixel buffers (`canvas.width = 0`) after every inference pass to prevent heap accumulation during auto-capture. 
-    - > [!IMPORTANT]
-    - > **Core Purity**: When using MangaOCR or PaddleOCR, the application automatically bypasses the image preprocessors to feed raw, high-fidelity pixels directly into the neural network's internal pipeline.
+- **Multi-Pass Analyst (v2)** — Hardened consensus voting for Tesseract. Runs 5 preprocessing passes and picks the most accurate read based on Japanese density.
+- **Performance Diagnostics** — Visual 🔥/⚠️ indicators that signal whether the browser is running in High-Performance mode (SharedArrayBuffer + WebGPU active).
+- **Explicit Memory Disposal** — Real-time zeroing of pixel buffers (`canvas.width = 0`) after every inference pass to prevent heap accumulation.
+    > [!IMPORTANT]
+    > **Core Purity**: When using MangaOCR or PaddleOCR, the application automatically bypasses the image preprocessors to feed raw, high-fidelity pixels directly into the neural network's internal pipeline.
 - **Adjustable UI Sizes** — Customize Text Area and Font sizes (Standard/Small/Large) for ideal readability in the side menu.
 - **8 image preprocessing modes** for Tesseract-based OCR (Adaptive, Multi-Pass, Last Resort, etc.).
 - **Auto-capture** with pixel-level change detection and stabilization delay.

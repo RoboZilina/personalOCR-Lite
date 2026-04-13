@@ -1,4 +1,5 @@
 import { fetchWithProgress, canvasToFloat32Tensor } from './paddle_core.js';
+import { isWebGPUSupported } from '../onnx/onnx_support.js';
 
 export class PaddleOCR {
     constructor(manifestUrl, wasmBasePath, updateStatus) {
@@ -18,6 +19,10 @@ export class PaddleOCR {
         this.normalize = { mean: [0.5, 0.5, 0.5], std: [0.5, 0.5, 0.5] };
         this.isLoaded = false;
         this.initPromise = this.load();
+
+        // Hardening Patch v2.1.8: Pre-allocated buffer for zero-churn recognition
+        this.recognitionBuffer = null;
+        this.recognitionBufferSize = 48 * 320 * 3;
     }
 
     /** Interface-compliant initialization */
@@ -38,10 +43,16 @@ export class PaddleOCR {
                 this.normalize = this.manifest.normalize;
             }
 
-            // Configure ONNX Runtime WASM
-            // ort.env.wasm.wasmPaths = "js/onnx/"; 
-            ort.env.wasm.numThreads = 1; 
+            // Configure ONNX Runtime WASM Fallback
+            const isIsolated = self.crossOriginIsolated;
+            const threads = isIsolated ? Math.min(4, navigator.hardwareConcurrency || 1) : 1;
+            ort.env.wasm.numThreads = threads; 
             ort.env.wasm.simd = true;
+            console.log(`[ENGINE] WASM Configuration — isolated: ${isIsolated}, numThreads: ${threads}`);
+
+            // Enable WebGPU backend for PaddleOCR when available (fallback to WASM).
+            const useWebGPU = await isWebGPUSupported();
+            const executionProviders = useWebGPU ? ['webgpu', 'wasm'] : ['wasm'];
 
             // Load detection model
             this.reportStatus('loading', '🟡 PaddleOCR: loading detection model…');
@@ -49,7 +60,8 @@ export class PaddleOCR {
                 modelBase + this.manifest.det.path,
                 (p) => this.reportStatus('loading', `🟡 PaddleOCR: Loading ${(p * 50).toFixed(0)}%`)
             );
-            this.detSession = await ort.InferenceSession.create(detBuffer);
+            this.detSession = await ort.InferenceSession.create(detBuffer, { executionProviders });
+            console.log(`[ENGINE] PaddleOCR Detection Session — Active Backend: ${this.detSession.executionProvider || 'unknown'}`);
             detBuffer = null; // Memory Guard: Release buffer immediately after session creation
             await new Promise(resolve => setTimeout(resolve, 50)); // Memory Guard: Yield to allow GC breathing room
 
@@ -59,7 +71,8 @@ export class PaddleOCR {
                 modelBase + this.manifest.rec.path,
                 (p) => this.reportStatus('loading', `🟡 PaddleOCR: Loading ${(50 + p * 50).toFixed(0)}%`)
             );
-            this.recSession = await ort.InferenceSession.create(recBuffer);
+            this.recSession = await ort.InferenceSession.create(recBuffer, { executionProviders });
+            console.log(`[ENGINE] PaddleOCR Recognition Session — Active Backend: ${this.recSession.executionProvider || 'unknown'}`);
             recBuffer = null; // Memory Guard: Release buffer
 
             // Load dictionary
@@ -71,12 +84,46 @@ export class PaddleOCR {
                 this.dict.pop();
             }
 
+            // Warm-up WebGPU Shaders (if active)
+            await this.warmUp();
+
             this.isLoaded = true;
             this.reportStatus('ready', '🟢 PaddleOCR: ready.');
         } catch (err) {
             console.error("PaddleOCR: Load Error:", err);
             this.reportStatus('error', '🔴 PaddleOCR: Load Failed.');
             throw err;
+        }
+    }
+
+    /**
+     * WebGPU Shader Pre-warming (Zero-Inference Pass)
+     * Forces the browser to compile shaders during load rather than during first run.
+     */
+    async warmUp() {
+        if (!this.detSession || !this.recSession) return;
+        
+        try {
+            // Micro-yield to ensure UI responsiveness
+            await new Promise(r => setTimeout(r, 0));
+
+            // Warm up Detection Model (960x960)
+            const detShape = [1, 3, 960, 960];
+            const detDummy = new ort.Tensor('float32', new Float32Array(1 * 3 * 960 * 960), detShape);
+            const detFeeds = {};
+            detFeeds[this.detSession.inputNames[0]] = detDummy;
+            await this.detSession.run(detFeeds);
+
+            // Warm up Recognition Model (48x320)
+            const recShape = [1, 3, 48, 320];
+            const recDummy = new ort.Tensor('float32', new Float32Array(1 * 3 * 48 * 320), recShape);
+            const recFeeds = {};
+            recFeeds[this.recSession.inputNames[0]] = recDummy;
+            await this.recSession.run(recFeeds);
+
+            console.log('[ENGINE] PaddleOCR warm-up complete');
+        } catch (err) {
+            console.warn('[ENGINE] PaddleOCR warm-up skipped (fallback or error)', err);
         }
     }
 
@@ -178,11 +225,12 @@ export class PaddleOCR {
                     const x2 = pMaxX * scaleX;
                     const y2 = pMaxY * scaleY;
 
-                    // Noise-box filtering
+                    // Noise-box filtering (Patch v2.1.8)
                     const w = x2 - x1;
                     const h = y2 - y1;
-                    if (w < 20 || h < 10) {
-                        continue; // skip tiny noise boxes
+                    const MIN_AREA = 40 * 40; 
+                    if (w * h < MIN_AREA) {
+                        continue; 
                     }
 
                     boxes.push([x1, y1, x2, y2]);
@@ -199,11 +247,15 @@ export class PaddleOCR {
         if (!this.recSession) return { text: '' };
 
         try {
-
-            const inputSize = this.manifest.rec.input_size || [32, 320];
+            const inputSize = this.manifest.rec.input_size || [48, 320];
             const [h, w] = inputSize;
 
-            const tensorData = canvasToFloat32Tensor(cropCanvas, inputSize, this.normalize);
+            if (!this.recognitionBuffer) {
+                this.recognitionBuffer = new Float32Array(this.recognitionBufferSize);
+                console.log('[ENGINE] PaddleOCR buffer pool active');
+            }
+
+            const tensorData = canvasToFloat32Tensor(cropCanvas, inputSize, this.normalize, this.recognitionBuffer);
             if (!tensorData) return { text: '' };
             
             const inputTensor = new ort.Tensor('float32', tensorData, [1, 3, h, w]);
