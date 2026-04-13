@@ -1828,7 +1828,6 @@ document.getElementById('paddle-cancel')?.addEventListener('click', () => {
     document.getElementById('paddle-modal').classList.remove('active');
     if (selectionRect) window.drawSelectionRect();
 });
-});
 
 // 6.4 Banner Event Listeners
 document.getElementById('banner-switch-default')?.addEventListener('click', async () => {
