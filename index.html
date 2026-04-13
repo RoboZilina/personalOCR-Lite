@@ -148,8 +148,7 @@
                         <li><strong>🔄 RE-CAPTURE:</strong> Manually re-scan the same region anytime.</li>
                         <li><strong>AUTO Button:</strong> Enable hands-free continuous reading (next to RE-CAPTURE).
                         </li>
-                        <li><strong>Debug Thumbnail:</strong> Shows the exact capture sent to OCR — use it to check
-                            scaling and clarity.</li>
+                        <li><strong>Debug Thumbnail (Dev only):</strong> Advanced diagnostic view showing the exact capture sent to OCR — useful for engineering troubleshooting.</li>
                         <li><strong>Scaling & Engine:</strong> Adjust in the header for best results on small or complex
                             fonts.</li>
                         <li><strong>TTS & History:</strong> Hear lines spoken aloud (🔊) or browse the sidebar for past
@@ -174,7 +173,7 @@
                         <li><strong>Default Mini:</strong> Balanced speed and accuracy. Smart thresholding with light denoise. Great for clean, modern media.</li>
                         <li><strong>Default Full:</strong> Maximum fidelity. High-contrast normalization and strong sharpening. Best for classic or low-res captures.</li>
                         <li><strong>Adaptive:</strong> Adaptive Thresholding. Uses local tile analysis to handle gradients and semi-transparent text boxes with extreme precision.</li>
-                        <li><strong>Multi-Pass:</strong> The Analyst. Runs 5 preprocessing combos and "votes" for the most Japanese-like result. Slower but very reliable.</li>
+                        <li><strong>Multi-Pass:</strong> The Analyst. Runs 5 preprocessing passes and uses "Consensus Voting" to select the most Japanese-like result. Includes a real-time diagnostic overlay with an <strong>Engine Indicator</strong> to show exactly what is being analyzed.</li>
                         <li><strong>Last Resort:</strong> The Nuclear Option. Performs advanced textbox isolation and stroke reconstruction. Use when all else fails.</li>
                         <li><strong>Contrast:</strong> Hard black/white. Best for flat, clean backgrounds.</li>
                         <li><strong>Grayscale:</strong> Preserved tonal detail. Good for colorful or gradient backgrounds.</li>
