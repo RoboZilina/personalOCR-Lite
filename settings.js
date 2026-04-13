@@ -15,7 +15,7 @@ const defaultSettings = {
     theme: "auto",                // "auto", "dark", "light"
     historyVisible: true,
     previewVisible: false,
-    debug: false,
+    debug: false,                 // Developer flag: enables hidden diagnostics in console/thumbnail
     paddleLineCount: 3,
     textAreaSize: "standard",      // "small", "standard", "large"
     textSize: "standard",          // "small", "standard", "large"

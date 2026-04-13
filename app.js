@@ -92,7 +92,17 @@ const engines = {
         supportsModes: false,
         defaultMode: null,
         preprocess: async (canvas, mode, lineCount) => applyPaddlePreprocessing(canvas, lineCount),
-        postprocess: (results) => results.join('\n').trim(),
+        postprocess: (results) => {
+            const cleaned = results.filter((text) => {
+                const density = scoreJapaneseDensity(text || '');
+                // Remove ONLY extreme garbage: strongly negative density
+                if (density < -0.5) {
+                    return false;
+                }
+                return true;
+            });
+            return cleaned.join('\n').trim();
+        },
         handleError: (error) => { console.error(error); return "[PaddleOCR Error]"; },
         isMultiLine: true,
         readyStatus: '🟢 PaddleOCR Ready'
@@ -101,7 +111,12 @@ const engines = {
         factory: (deps) => new MangaOCREngine({ reportStatus: deps.reportStatus }),
         supportsModes: false,
         defaultMode: null,
-        preprocess: async (canvas) => [canvas],
+        preprocess: async (canvas) => {
+            let cropCanvas = canvas;
+            cropCanvas = lr_addPadding(cropCanvas, 8);   // subtle padding
+            cropCanvas = sharpenCanvas(cropCanvas);      // existing fixed-strength sharpening
+            return [cropCanvas];
+        },
         postprocess: (results) => results.join('').trim(),
         handleError: (error) => { console.error(error); return "[MangaOCR Error]"; },
         isMultiLine: false,
@@ -359,7 +374,12 @@ async function switchEngineModular(id) {
 
     // 8) Restore UI state
     if (engineSelector) {
-        engineSelector.value = id; // preserve UI variant (e.g. "paddle_2")
+        let selectorValue = id;
+        if (id === "paddle") {
+            const count = getSetting('paddleLineCount') || 3;
+            selectorValue = `paddle_${count}`;
+        }
+        engineSelector.value = selectorValue; // preserve UI variant (e.g. "paddle_2")
         engineSelector.disabled = false;
     }
     if (modeSelector) {
@@ -580,7 +600,7 @@ async function preprocessForEngine(engineId, rawCanvas, mode, lineCount) {
 if (modeSelector) {
     modeSelector.addEventListener('change', () => {
         applyUIToSettings();
-        console.log('[Mode Select] Mode updated:', modeSelector.value);
+        // if (getSetting('debug')) console.debug('[Mode Select] Mode updated:', modeSelector.value);
         removeMultiPassOverlay();
         setOCRStatus('ready', '');
     });
@@ -615,7 +635,7 @@ if (historyContent) {
         const action = btn.getAttribute('data-action');
         if (action === 'speak') speak(textSpan.textContent);
         if (action === 'copy') {
-            navigator.clipboard.writeText(textSpan.textContent);
+            navigator.clipboard.writeText(textSpan.textContent).catch(() => {});
             btn.innerHTML = '✅';
             setTimeout(() => btn.innerHTML = '📋', 1000);
         }
@@ -654,7 +674,7 @@ async function startCapture() {
         videoStream.getVideoTracks()[0].onended = stopCapture;
         selectWindowBtn.classList.add('stop');
         selectWindowBtn.textContent = 'Stop Capture';
-        document.getElementById('placeholder').style.display = 'none';
+        document.getElementById('placeholder')?.style.display = 'none';
         const hint = document.getElementById('selection-hint');
         if (hint) hint.classList.add('visible');
     } catch (err) {
@@ -667,7 +687,7 @@ function stopCapture() {
     videoStream = null; vnVideo.srcObject = null;
     if (autoCaptureTimer) { clearInterval(autoCaptureTimer); autoCaptureTimer = null; }
     if (stabilityTimer) { clearTimeout(stabilityTimer); stabilityTimer = null; }
-    document.getElementById('placeholder').style.display = 'flex';
+    document.getElementById('placeholder')?.style.display = 'flex';
     const hint = document.getElementById('selection-hint');
     if (hint) hint.classList.remove('visible');
     selectWindowBtn.classList.remove('stop');
@@ -861,7 +881,7 @@ function denormalizeSelection(rect, videoEl, overlayEl) {
     const y = ((rectY - offsetY) / actualHeight) * vHeight;
     const w = (rectW / actualWidth) * vWidth;
     const h = (rectH / actualHeight) * vHeight;
-    if (getSetting('debug')) console.debug('[VN-OCR] selection:', { x, y, w, h, vWidth, vHeight });
+    // if (getSetting('debug')) console.debug('[VN-OCR] selection:', { x, y, w, h, vWidth, vHeight });
     return { x, y, w, h };
 }
 
@@ -982,7 +1002,7 @@ function boostContrast(canvas, factor = 1.08) {
 async function captureFrame(rect) {
     if (!vnVideo || !vnVideo.videoWidth || !rect || isProcessing) return;
     isProcessing = true;
-    if (getSetting('debug')) console.log("Capture triggered");
+    // if (getSetting('debug')) console.log("Capture triggered");
     const myGen = ++captureGeneration;
 
     const vWidth = vnVideo.videoWidth, vHeight = vnVideo.videoHeight;
@@ -995,7 +1015,7 @@ async function captureFrame(rect) {
     rawCropCanvas.getContext('2d').drawImage(vnVideo, cx_, cy_, cw_, ch_, 0, 0, cw_, ch_);
 
     // 6. Logging for verification
-    if (getSetting('debug')) console.log(`[VN-OCR] Crop Source: sx=${cx_}, sy=${cy_}, sw=${cw_}, sh=${ch_}`);
+    // if (getSetting('debug')) console.log(`[VN-OCR] Crop Source: sx=${cx_}, sy=${cy_}, sw=${cw_}, sh=${ch_}`);
 
     EngineManager._notifyStatus('processing', '🟡 Processing...');
     await new Promise(r => setTimeout(r, 0)); // yield to browser for repaint
@@ -1091,9 +1111,9 @@ async function captureFrame(rect) {
         const finalText = EngineManager.postprocess(ocrLines);
 
         const avgConfidence = confidenceCount > 0 ? (totalConfidence / confidenceCount) : null;
-        if (avgConfidence !== null) {
-            console.log("[ENGINE-DEBUG] average confidence:", avgConfidence);
-        }
+        // if (avgConfidence !== null && getSetting('debug')) {
+        //     console.debug("[ENGINE-DEBUG] average confidence:", avgConfidence);
+        // }
 
         // 4. Unified UI Update
         if (finalText) {
@@ -1489,7 +1509,10 @@ function showMultiPassOverlay(results, finalText) {
     body.id = 'multipass-overlay-body';
     body.style.pointerEvents = 'auto';
 
-    let html = '';
+    const active = getSetting('ocrEngine') || 'tesseract';
+    const label = active === 'paddle' ? 'PaddleOCR' : (active === 'manga' ? 'MangaOCR' : 'Tesseract');
+
+    let html = `<div style="font-size:10px; opacity:0.8; margin-bottom:6px; border-bottom:1px solid rgba(255,255,255,0.2); padding-bottom:4px;">Analyzing: ${label}</div>`;
 
     results.forEach((r, i) => {
         html += `<strong>Pass ${i + 1}</strong><br>`;
@@ -1709,7 +1732,7 @@ engineSelector.addEventListener('change', async () => {
             ? 'tesseract'
             : (currentEngine === 'paddle' ? `paddle_${currentLines}` : currentEngine);
 
-        document.getElementById('paddle-modal').classList.add('active');
+        document.getElementById('paddle-modal')?.classList.add('active');
         if (selectionRect) window.drawSelectionRect();
         return;
     }
@@ -1816,7 +1839,7 @@ document.getElementById('banner-nocall-checkbox')?.addEventListener('change', (e
 });
 
 document.getElementById('banner-close')?.addEventListener('click', () => {
-    document.getElementById('startup-banner').classList.remove('active');
+    document.getElementById('startup-banner')?.classList.remove('active');
 });
 
 // 6.5 Global Initialization
@@ -2030,7 +2053,7 @@ globalInitialize();
 
 /** Public API Namespace (Auditability Phase) */
 window.VNOCR = {
-    version: '2.1.1',
+    version: '2.1.2',
     isReady: EngineManager.isReady,
     drawSelectionRect: window.drawSelectionRect,
     captureFrame: window.captureFrame,

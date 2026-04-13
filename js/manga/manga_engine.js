@@ -72,59 +72,7 @@ export class MangaOCREngine {
         }
     }
 
-    /**
-     * Performs Autoregressive Recognition (Encoder once -> Decoder Loop).
-     */
-    async recognize(imageData) {
-        if (!this.isLoaded) throw new Error("MangaOCR not loaded.");
 
-        try {
-            // 1. Preprocessing (Engine-Local)
-            const pixelValues = this._preprocessToTensor(imageData);
-
-            // 2. Pass 1: Encoder (Image Features)
-            const encoderOutput = await this.encoderSession.run({ pixel_values: pixelValues });
-            const encoderHiddenStates = encoderOutput.last_hidden_state;
-
-            // 3. Pass 2: Autoregressive Decoder Loop (Greedy Decoding)
-            let inputIds = [this.BOS_TOKEN_ID];
-            let resultTokens = [];
-
-            for (let i = 0; i < this.MAX_LENGTH; i++) {
-                // Prepare input ids tensor [1, current_length]
-                const decoderFeeds = {
-                    input_ids: new ort.Tensor('int64', BigInt64Array.from(inputIds.map(id => BigInt(id))), [1, inputIds.length]),
-                    encoder_hidden_states: encoderHiddenStates
-                };
-
-                // Run Decoder
-                const decoderOutput = await this.decoderSession.run(decoderFeeds);
-                const logits = decoderOutput.logits; // [1, sequence_length, vocab_size]
-
-                // Greedy Step: Take the Argmax of the LAST token's logits
-                const nextTokenId = this._greedyChoice(logits);
-
-                if (nextTokenId === this.EOS_TOKEN_ID) break;
-
-                inputIds.push(nextTokenId);
-                const token = this.vocab[nextTokenId] || "";
-                // Filter BERT-style special tokens — generalizes to full [TOKEN] vocab class
-                if (!(token.startsWith('[') && token.endsWith(']'))) {
-                    resultTokens.push(token);
-                }
-            }
-
-            // post_process: mirrors official manga-ocr post_process() function
-            let text = resultTokens.join("");
-            text = text.replace(/\u2026/g, '...');                       // … → ...
-            text = text.replace(/[・.]{2,}/g, m => '.'.repeat(m.length)); // repeated dots normalize
-            text = text.replace(/\s+/g, '');                              // strip whitespace
-            return { text };
-        } catch (err) {
-            console.error("[MANGA-ERROR] Recognition Failed:", err);
-            return { text: "" };
-        }
-    }
 
     /**
      * Internal greedy argmax on the final dimension of the logits tensor.

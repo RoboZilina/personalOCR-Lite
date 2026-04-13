@@ -1,17 +1,19 @@
-# VN-OCR — Hardened Milestone (v2.1.1)
+# VN-OCR — Hardened Milestone (v2.1.2)
 
 A high-performance, browser-only Japanese OCR suite for Japanese Media. No installation, no backend, and uncompromising privacy.
 
-## v2.1.1: The Persistence & Consensus Milestone
-This version represents a major architectural milestone focused on **Defensive State Management** and **Modular Engine Reliability**. The application is now architecturally immune to corrupted state glitches and "blank selector" bugs that often plague PWAs during updates.
+## v2.1.2: The Persistence & Consensus Milestone
+This version represents a major architectural milestone focused on **Multi-Pass Consensus** and **Neural Baseline Calibration**. The application is now hardened with deterministic decision-making (The Analyst), specialized neural preprocessing, and robust memory management.
 
 ## Features
 - **ONNX Runtime Web Integration** — Native in-browser inference for advanced neural networks (PaddleOCR & MangaOCR) via a custom optimized VED pipeline.
 - **Global Defensive Architecture** — Deterministic state restoration that guarantees a valid UI state regardless of `localStorage` conditions.
 - **Modular Engine Registry** — Fully decoupled OCR backend (Tesseract, PaddleOCR, MangaOCR) allowing for seamless engine switching and unified readiness reporting.
-- **Explicit Memory Disposal** — Real-time zeroing of pixel buffers and canvas scaling contexts to prevent memory leaks during high-resolution OCR operations.
-- **PaddleOCR (v5) Engine** — High-precision neural-network recognizer. Includes vertical image slicing for 1–4 lines of text, optimized for dialogue boxes.
-- **MangaOCR Engine** — Vision Transformer (ViT) model specifically tuned for Japanese Manga panels. 
+- **Multi-Pass Analyst (v2)** — Hardened consensus voting. Runs 5 preprocessing passes and calculates a "Weight Score" based on Japanese character density and OCR confidence to pick the most accurate read.
+- **Neural Baseline Stabilization** — Specialized pre-inference logic for neutral tracks.
+    - **MangaOCR**: 8px safety padding + fixed-strength sharpening to define line art.
+    - **PaddleOCR**: Real-time "Density Gating" to filter out background hallucinations.
+- **Explicit Memory Disposal** — Real-time zeroing of pixel buffers (`canvas.width = 0`) after every inference pass to prevent heap accumulation during auto-capture. 
     - > [!IMPORTANT]
     - > **Core Purity**: When using MangaOCR or PaddleOCR, the application automatically bypasses the image preprocessors to feed raw, high-fidelity pixels directly into the neural network's internal pipeline.
 - **Adjustable UI Sizes** — Customize Text Area and Font sizes (Standard/Small/Large) for ideal readability in the side menu.
