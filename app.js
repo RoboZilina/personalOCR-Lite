@@ -144,13 +144,13 @@ const EngineManager = (() => {
     // Notify all listeners
     function notifyStatus(state, text) {
         engineState = state;
-        
+
         if (state === 'ready') emit('ready', text);
         if (state === 'loading') emit('loading', text);
         if (state === 'error') emit('error', text);
 
         for (const fn of statusListeners) {
-            try { fn({ state, text, engineId: currentEngineId }); } catch {}
+            try { fn({ state, text, engineId: currentEngineId }); } catch { }
         }
     }
 
@@ -179,7 +179,7 @@ const EngineManager = (() => {
         notifyStatus('loading', `🟡 Initializing ${currentLabel?.toUpperCase() || 'UNKNOWN'}...`);
 
         try {
-            const deps = { reportStatus: notifyStatus }; 
+            const deps = { reportStatus: notifyStatus };
             currentEngine = registryEntry.factory(deps);
 
             if (currentEngine && typeof currentEngine.load === 'function') {
@@ -213,7 +213,7 @@ const EngineManager = (() => {
         notifyStatus('idle', 'Engine Disposed');
     }
 
-    
+
 
 
     // Unified OCR entry point
@@ -394,6 +394,7 @@ let videoStream = null;
 let isProcessing = false;
 let captureGeneration = 0;
 let selectionRect = null;
+let multiPassOverlayCollapsed = false;
 
 
 // Smart Scout: 32x32 Comparison Logic
@@ -518,12 +519,23 @@ function updatePaddlePanelVisibility() {
 }
 
 function applyTesseractPreprocessing(cropCanvas, mode) {
-    if (mode === 'multi' || mode === 'last_resort') {
-        // Legacy Tesseract pipelines handle their own preprocessing internally
-        return [cropCanvas];
+    if (mode === 'multi') {
+        return [
+            applyPreprocessing(cropCanvas, 'default_mini'),
+            applyPreprocessing(cropCanvas, 'default_full'),
+            applyPreprocessing(cropCanvas, 'adaptive'),
+            applyPreprocessing(cropCanvas, 'grayscale'),
+            applyPreprocessing(cropCanvas, 'binarize'),
+        ];
     }
-    const processed = applyPreprocessing(cropCanvas, mode);
-    return [processed];
+
+    if (mode === 'last_resort') {
+        let nuclear = applyPreprocessing(cropCanvas, 'default_full');
+        nuclear = sharpenCanvas(nuclear);
+        return [nuclear];
+    }
+
+    return [applyPreprocessing(cropCanvas, mode)];
 }
 
 function applyPaddlePreprocessing(cropCanvas, lineCount) {
@@ -536,13 +548,13 @@ function applyPaddlePreprocessing(cropCanvas, lineCount) {
         const t1 = trimEmptyVertical(s);
         // If we created a NEW slice (count > 1), dispose of original slice canvas 's'
         if (count > 1) { s.width = 0; s.height = 0; }
-        
+
         const t2 = padLeft(t1, 4);
         t1.width = 0; t1.height = 0; // Dispose intermediate
-        
+
         const t3 = boostContrast(t2, 1.08);
         t2.width = 0; t2.height = 0; // Dispose intermediate
-        
+
         return t3;
     });
 }
@@ -569,6 +581,8 @@ if (modeSelector) {
     modeSelector.addEventListener('change', () => {
         applyUIToSettings();
         console.log('[Mode Select] Mode updated:', modeSelector.value);
+        removeMultiPassOverlay();
+        setOCRStatus('ready', '');
     });
 }
 
@@ -695,7 +709,7 @@ if (selectionOverlay) {
             const w = Math.abs(currentX - startX);
             const h = Math.abs(currentY - startY);
             if (h === 0) return; // avoid div by zero on first pixel
-            
+
             if (w > h * 1.2) {
                 const allowedW = h * 1.2;
                 currentX = currentX > startX ? startX + allowedW : startX - allowedW;
@@ -706,22 +720,22 @@ if (selectionOverlay) {
         }
     };
 
-    window.addEventListener('mousemove', e => { 
-        if (isSelecting) { 
-            const pos = getMousePos(e); 
-            currentX = pos.x; 
-            currentY = pos.y; 
+    window.addEventListener('mousemove', e => {
+        if (isSelecting) {
+            const pos = getMousePos(e);
+            currentX = pos.x;
+            currentY = pos.y;
             applyMangaConstraint();
-            drawSelectionRect(); 
-        } 
+            drawSelectionRect();
+        }
     });
-    
+
     window.addEventListener('mouseup', e => {
         if (!isSelecting) return;
         isSelecting = false; const pos = getMousePos(e);
         currentX = pos.x; currentY = pos.y;
         applyMangaConstraint();
-        
+
         const w = selectionOverlay.width, h = selectionOverlay.height;
         const finalRect = {
             x: Math.min(startX, currentX) / w,
@@ -986,9 +1000,43 @@ async function captureFrame(rect) {
     EngineManager._notifyStatus('processing', '🟡 Processing...');
     await new Promise(r => setTimeout(r, 0)); // yield to browser for repaint
     const mode = modeSelector.value;
-    console.debug("[INFERENCE-DEBUG] captureFrame engine:", EngineManager.getInfo().id, "mode:", mode);
-
+    const engine = EngineManager.getInfo().id;
     try {
+        if (engine === 'tesseract' && mode === 'multi') {
+            setOCRStatus('processing', 'Analyst: Pass 1/5...');
+            const canvases = applyTesseractPreprocessing(rawCropCanvas, mode);
+            const results = [];
+
+            // 1. First Pass: Early exit if result is highly confident and clean
+            const first = await EngineManager.runOCR(canvases[0], 'tesseract');
+            const firstDensity = scoreJapaneseDensity(first.text);
+
+            if (first.confidence > 85 && firstDensity > 5) {
+                addOCRResultToUI(first.text);
+                updateDebugThumb(canvases[0]);
+                setOCRStatus('ready', '🟢 Analyst: Early Exit');
+                canvases.forEach(c => { c.width = 0; c.height = 0; });
+                return;
+            }
+
+            // 2. Otherwise: Continue with the remaining 4 passes for Analyst voting
+            results.push({ text: first.text, confidence: first.confidence });
+            for (let i = 1; i < canvases.length; i++) {
+                setOCRStatus('processing', `Analyst: Pass ${i+1}/5...`);
+                const r = await EngineManager.runOCR(canvases[i], 'tesseract');
+                results.push({ text: r.text, confidence: r.confidence });
+            }
+
+            const finalText = pickBestMultiPassResult(results);
+            addOCRResultToUI(finalText);
+            const bestIndex = findBestMultiPassIndex(results);
+            updateDebugThumb(canvases[bestIndex]);
+            showMultiPassOverlay(results, finalText);
+            setOCRStatus('ready', '🟢 Analyst Complete');
+            canvases.forEach(c => { c.width = 0; c.height = 0; });
+            return;
+        }
+
         const lineCount = getSetting('paddleLineCount') || 1;
         const canvases = await preprocessForEngine(EngineManager.getInfo().id, rawCropCanvas, mode, lineCount);
         console.debug("[INFERENCE-DEBUG] total slices:", canvases.length);
@@ -1015,7 +1063,7 @@ async function captureFrame(rect) {
             if (!clean.width || !clean.height) continue;
 
             console.debug("[INFERENCE-DEBUG] slice dimensions:", clean.width, "x", clean.height);
-            
+
             try {
                 const result = await EngineManager.runOCR(clean);
                 const { text } = result;
@@ -1038,7 +1086,7 @@ async function captureFrame(rect) {
         }
 
         if (captureGeneration !== myGen) return;
-        
+
         // Modular Post-processing
         const finalText = EngineManager.postprocess(ocrLines);
 
@@ -1366,6 +1414,146 @@ function sharpenCanvas(canvas) {
     return resCanvas;
 }
 
+function scoreJapaneseDensity(text) {
+    const jp = (text.match(/[\u3040-\u30FF\u4E00-\u9FFF]/g) || []).length;
+    const ascii = (text.match(/[A-Za-z0-9]/g) || []).length;
+    const noise = (text.match(/[\u0000-\u001F]/g) || []).length;
+    return jp - ascii * 0.5 - noise;
+}
+
+function pickBestMultiPassResult(results) {
+    // 1. Majority vote
+    const counts = {};
+    for (const r of results) {
+        counts[r.text] = (counts[r.text] || 0) + 1;
+    }
+    const majority = Object.entries(counts).find(([t, c]) => c >= 3);
+    if (majority) return majority[1] >= 3 ? majority[0] : null; // Safety refinement based on user logic
+
+    // 2. Highest confidence
+    const bestByConf = results.reduce((a, b) =>
+        a.confidence > b.confidence ? a : b
+    );
+
+    // 3. Density fallback
+    const bestByDensity = results.reduce((a, b) =>
+        scoreJapaneseDensity(a.text) > scoreJapaneseDensity(b.text) ? a : b
+    );
+
+    // 4. Weighted score fallback
+    let bestWeighted = results[0];
+    for (const r of results) {
+        if (weightedScore(r) > weightedScore(bestWeighted)) {
+            bestWeighted = r;
+        }
+    }
+    return bestWeighted.text;
+}
+
+function weightedScore(result) {
+    const density = Math.max(0, scoreJapaneseDensity(result.text));
+    return result.confidence * 0.7 + density * 0.3;
+}
+
+function showMultiPassOverlay(results, finalText) {
+    // Remove existing overlay if present
+    const old = document.getElementById('multipass-overlay');
+    if (old) old.remove();
+
+    const div = document.createElement('div');
+    div.id = 'multipass-overlay';
+    div.style.position = 'fixed';
+    div.style.bottom = '10px';
+    div.style.right = '10px';
+    div.style.maxWidth = '350px';
+    div.style.maxHeight = '50vh';
+    div.style.overflowY = 'auto';
+    div.style.background = 'rgba(0,0,0,0.75)';
+    div.style.color = 'white';
+    div.style.padding = '10px';
+    div.style.borderRadius = '6px';
+    div.style.fontSize = '12px';
+    div.style.zIndex = '99999';
+    div.style.lineHeight = '1.4em';
+    div.style.whiteSpace = 'pre-wrap';
+    div.style.pointerEvents = 'none';
+
+    const header = document.createElement('div');
+    header.style.cursor = 'pointer';
+    header.style.fontWeight = 'bold';
+    header.style.marginBottom = '6px';
+    header.style.pointerEvents = 'auto';
+    header.textContent = 'Multi‑Pass Analyst (click to collapse)';
+
+    const body = document.createElement('div');
+    body.id = 'multipass-overlay-body';
+    body.style.pointerEvents = 'auto';
+
+    let html = '';
+
+    results.forEach((r, i) => {
+        html += `<strong>Pass ${i + 1}</strong><br>`;
+        html += `Confidence: ${r.confidence}<br>`;
+        html += `Density: ${scoreJapaneseDensity(r.text)}<br>`;
+        html += `Weighted: ${weightedScore(r)}<br>`;
+        html += `Text: ${r.text}<br><br>`;
+    });
+
+    html += `<strong>Final:</strong> ${finalText}`;
+
+    body.innerHTML = html;
+
+    div.appendChild(header);
+    div.appendChild(body);
+
+    let collapsed = multiPassOverlayCollapsed;
+
+    if (collapsed) {
+        header.textContent = 'Multi‑Pass Analyst (click to expand)';
+        body.style.display = 'none';
+        div.style.maxHeight = '30px';
+    } else {
+        header.textContent = 'Multi‑Pass Analyst (click to collapse)';
+        body.style.display = 'block';
+        div.style.maxHeight = '50vh';
+    }
+
+    header.addEventListener('click', () => {
+        collapsed = !collapsed;
+        multiPassOverlayCollapsed = collapsed;
+
+        if (collapsed) {
+            header.textContent = 'Multi‑Pass Analyst (click to expand)';
+            body.style.display = 'none';
+            div.style.maxHeight = '30px';
+        } else {
+            header.textContent = 'Multi‑Pass Analyst (click to collapse)';
+            body.style.display = 'block';
+            div.style.maxHeight = '50vh';
+        }
+    });
+
+    document.body.appendChild(div);
+}
+
+function removeMultiPassOverlay() {
+    const old = document.getElementById('multipass-overlay');
+    if (old) old.remove();
+}
+
+function findBestMultiPassIndex(results) {
+    let best = 0;
+    let bestScore = -Infinity;
+    results.forEach((r, i) => {
+        const score = weightedScore(r);
+        if (score > bestScore) {
+            bestScore = score;
+            best = i;
+        }
+    });
+    return best;
+}
+
 // Pipelines
 
 
@@ -1429,17 +1617,17 @@ function openUserGuide() {
 }
 
 function initHelpModal() {
-    const helpBtn = document.getElementById('help-btn'), 
-          helpModal = document.getElementById('help-modal'), 
-          helpClose = document.getElementById('help-close');
-    
+    const helpBtn = document.getElementById('help-btn'),
+        helpModal = document.getElementById('help-modal'),
+        helpClose = document.getElementById('help-close');
+
     if (!helpBtn || !helpModal) return;
-    
-    helpBtn.onclick = (e) => { 
-        e.stopPropagation(); 
-        openUserGuide(); 
+
+    helpBtn.onclick = (e) => {
+        e.stopPropagation();
+        openUserGuide();
     };
-    
+
     if (helpClose) helpClose.onclick = () => helpModal.classList.remove('active');
     window.addEventListener('click', (e) => { if (e.target === helpModal) helpModal.classList.remove('active'); });
     window.addEventListener('keydown', (e) => { if (e.key === 'Escape') helpModal.classList.remove('active'); });
@@ -1491,6 +1679,8 @@ function initSettings() {
 // Unified modular switcher handles all transitions now.
 
 engineSelector.addEventListener('change', async () => {
+    removeMultiPassOverlay();
+    setOCRStatus('ready', '');
     const rawValue = engineSelector.value;
 
     let baseMode = rawValue;
@@ -1556,10 +1746,10 @@ document.getElementById('paddle-continue')?.addEventListener('click', async () =
 
     const count = getSetting('paddleLineCount') || 3;
     engineSelector.value = `paddle_${count}`;
-    
+
     // THE FIX: Persist the engine setting immediately so it isn't lost on the next UI sync
     setSetting('ocrEngine', 'paddle');
-    
+
     await switchEngineModular(`paddle_${count}`);
 
     document.getElementById('paddle-modal').classList.remove('active');
@@ -1571,7 +1761,7 @@ document.getElementById('paddle-cancel')?.addEventListener('click', () => {
     const currentEngine = getSetting('ocrEngine');
     const currentLines = getSetting('paddleLineCount');
     engineSelector.value = (currentEngine === 'tesseract') ? 'tesseract' : (currentEngine === 'paddle' ? `paddle_${currentLines}` : currentEngine);
-    
+
     document.getElementById('paddle-modal').classList.remove('active');
     if (selectionRect) window.drawSelectionRect();
 });
@@ -1585,7 +1775,7 @@ document.getElementById('manga-continue')?.addEventListener('click', async () =>
 
     engineSelector.value = 'manga';
     setSetting('ocrEngine', 'manga');
-    
+
     await switchEngineModular('manga');
 
     document.getElementById('manga-modal').classList.remove('active');
@@ -1596,7 +1786,7 @@ document.getElementById('manga-cancel')?.addEventListener('click', () => {
     const currentEngine = getSetting('ocrEngine');
     const currentLines = getSetting('paddleLineCount');
     engineSelector.value = (currentEngine === 'tesseract') ? 'tesseract' : (currentEngine === 'paddle' ? `paddle_${currentLines}` : currentEngine);
-    
+
     document.getElementById('manga-modal').classList.remove('active');
     if (selectionRect) window.drawSelectionRect();
 });
@@ -1639,7 +1829,7 @@ async function globalInitialize() {
 
     // Startup Engine Load: Restore the primary engine choice exactly once
     let savedEngine = getSetting('ocrEngine');
-    
+
     // The Fix: Explicitly check for falsy values (empty strings, null, undefined)
     if (!savedEngine) {
         console.debug("[INIT] ocrEngine is empty. Falling back to default: tesseract");
@@ -1647,7 +1837,7 @@ async function globalInitialize() {
     } else {
         console.debug("[INIT] Restoring engine:", savedEngine);
     }
-    
+
     // 1. Initial UI update for selector
     if (engineSelector) {
         // Map variant IDs to UI values safely
@@ -1676,7 +1866,7 @@ async function globalInitialize() {
     } else {
         console.debug("[INIT] Restoring saved mode:", savedMode);
     }
-    
+
     if (modeSelector) {
         modeSelector.value = savedMode;
         modeSelector.disabled = !engineInfo.capabilities.supportsModes;
@@ -1821,15 +2011,15 @@ globalInitialize();
                 if (setting && val) {
                     if (val === "true") val = true;
                     if (val === "false") val = false;
-                    
+
                     setSetting(setting, val);
-                    
+
                     // Specific toggle syncs for core logic if needed
                     if (setting === 'autoCapture') {
                         const at = document.getElementById('auto-capture-toggle');
                         if (at && at.checked !== val) at.click();
                     }
-                    
+
                     applySettingsToUI();
                     closeMenu();
                 }
@@ -1846,6 +2036,8 @@ window.VNOCR = {
     captureFrame: window.captureFrame,
     switchEngine: window.switchEngine
 };
+
+
 
 
 
