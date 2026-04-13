@@ -1,0 +1,13 @@
+{
+  "det": {
+    "path": "det.onnx",
+    "input_size": [960, 960]
+  },
+  "rec": {
+    "path": "rec.onnx",
+    "input_size": [48, 320]
+  },
+  "dict": {
+    "path": "dict.txt"
+  }
+}

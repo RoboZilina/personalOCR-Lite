@@ -1,7 +1,7 @@
 // === VERSION — Update CACHE_NAME on every release ===
 // This is the ONLY version string in the project.
 // Serve this file with Cache-Control: no-cache in production.
-const CACHE_NAME = 'vn-ocr-cache-v2.1.9';
+const CACHE_NAME = 'vn-ocr-cache-v2.5-lite';
 const ASSETS = [
     './',
     './index.html',
@@ -55,11 +55,8 @@ function withCOOP(response) {
 self.addEventListener('fetch', (event) => {
     const url = new URL(event.request.url);
 
-    // 1. Bypass Service Worker for PaddleOCR model files (Large ONNX binaries)
-    if (url.pathname.includes('/models/paddle/')) {
-        event.respondWith(fetch(event.request).then(withCOOP));
-        return;
-    }
+    // 1. Local assets: network-first (Lite optimization)
+    if (url.origin === location.origin) {
 
     // 2. CDN requests: network-only
     if (url.origin !== location.origin) {

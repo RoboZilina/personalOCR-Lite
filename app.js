@@ -40,7 +40,6 @@ import {
 
 import { TesseractEngine } from './js/tesseract/tesseract_engine.js';
 import { PaddleOCR } from './js/paddle/paddle_engine.js';
-import { MangaOCREngine } from './js/manga/manga_engine.js';
 
 /** Unified Readiness API (Hardening Phase) */
 
@@ -127,12 +126,8 @@ if (perfIcon && perfInfo) {
                 🐢 <b>Compatibility Mode:</b> High-performance features are currently blocked by browser security sandboxing.
             </div>
             <div style="margin-top: 12px; padding: 10px; background: rgba(16, 185, 129, 0.1); border-radius: 6px; border: 1px solid rgba(16, 185, 129, 0.2); font-size: 11px; color: #34d399;">
-                💡 <b>TIP:</b> Because this is a static deployment, a <b>manual page reload</b> is required to activate the Service Worker and unlock WebGPU.
+                💡 <b>TIP:</b> For local-only Lite deployments on GitHub Pages, a <b>manual page reload</b> is required to activate the Service Worker and unlock WebGPU.
             </div>
-            <div style="margin-top: 10px; font-size: 11px; color: var(--text-dim);">
-                For the best performance with no reload required, use the Cloudflare version:
-            </div>
-            <a href="https://personal-ocr.pages.dev" target="_blank" class="btn-perf-version">Open High-Performance Version</a>
         `;
         perfInfo.style.display = "block"; // Always visible in Compatibility Mode
     }
@@ -159,7 +154,7 @@ const engines = {
     },
     paddle: {
         factory: (deps) => new PaddleOCR(
-            './models/paddle/manifest.json',
+            './models/manifest.json',
             './js/onnx/',
             { reportStatus: deps.reportStatus }
         ),
@@ -180,24 +175,6 @@ const engines = {
         handleError: (error) => { console.error(error); return "[PaddleOCR Error]"; },
         isMultiLine: true,
         readyStatus: '🟢 PaddleOCR Ready'
-    },
-    manga: {
-        factory: (deps) => new MangaOCREngine(
-            './models/manga/manifest.json',
-            { reportStatus: deps.reportStatus }
-        ),
-        supportsModes: false,
-        defaultMode: null,
-        preprocess: async (canvas) => {
-            let cropCanvas = canvas;
-            cropCanvas = lr_addPadding(cropCanvas, 8);   // subtle padding
-            cropCanvas = sharpenCanvas(cropCanvas);      // existing fixed-strength sharpening
-            return [cropCanvas];
-        },
-        postprocess: (results) => results.join('').trim(),
-        handleError: (error) => { console.error(error); return "[MangaOCR Error]"; },
-        isMultiLine: false,
-        readyStatus: '🟢 MangaOCR Ready'
     }
 };
 
@@ -410,26 +387,9 @@ async function switchEngineModular(id) {
 
     console.debug("[ENGINE-DEBUG] switchEngineModular() requested:", id, "normalized:", normalizedId);
 
-    const mangaNote = document.getElementById('manga-note');
-    if (mangaNote) {
-        mangaNote.classList.toggle('visible', normalizedId === 'manga');
-    }
-
-    const capturePreviewMenu = document.getElementById('menu-capture-preview');
-    if (capturePreviewMenu) {
-        capturePreviewMenu.style.display = normalizedId === 'manga' ? 'none' : 'block';
-    }
-
     // 2) Lock UI during transition
     if (engineSelector) engineSelector.disabled = true;
     if (modeSelector) modeSelector.disabled = true;
-
-    // 3) Toggle Manga Dashboard Layout
-    const mainNode = document.querySelector('.app-main');
-    if (mainNode) {
-        if (normalizedId === 'manga') mainNode.classList.add('manga-layout');
-        else mainNode.classList.remove('manga-layout');
-    }
 
     // 4) Delegate Lifecycle to EngineManager
     const registryEntry = engines[normalizedId];
@@ -802,29 +762,11 @@ if (selectionOverlay) {
         if (hint) hint.classList.remove('visible');
     };
 
-    const applyMangaConstraint = () => {
-        const engineSelect = document.getElementById('model-selector');
-        if (engineSelect && engineSelect.value === 'manga') {
-            const w = Math.abs(currentX - startX);
-            const h = Math.abs(currentY - startY);
-            if (h === 0) return; // avoid div by zero on first pixel
-
-            if (w > h * 1.2) {
-                const allowedW = h * 1.2;
-                currentX = currentX > startX ? startX + allowedW : startX - allowedW;
-            } else if (h > w * 1.2) {
-                const allowedH = w * 1.2;
-                currentY = currentY > startY ? startY + allowedH : startY - allowedH;
-            }
-        }
-    };
-
     window.addEventListener('mousemove', e => {
         if (isSelecting) {
             const pos = getMousePos(e);
             currentX = pos.x;
             currentY = pos.y;
-            applyMangaConstraint();
             drawSelectionRect();
         }
     });
@@ -833,7 +775,6 @@ if (selectionOverlay) {
         if (!isSelecting) return;
         isSelecting = false; const pos = getMousePos(e);
         currentX = pos.x; currentY = pos.y;
-        applyMangaConstraint();
 
         const w = selectionOverlay.width, h = selectionOverlay.height;
         const finalRect = {
@@ -1601,7 +1542,7 @@ function showMultiPassOverlay(results, finalText) {
     body.style.pointerEvents = 'auto';
 
     const active = getSetting('ocrEngine') || 'tesseract';
-    const label = active === 'paddle' ? 'PaddleOCR' : (active === 'manga' ? 'MangaOCR' : 'Tesseract');
+    const label = active === 'paddle' ? 'PaddleOCR' : 'Tesseract';
 
     let html = `<div style="font-size:10px; opacity:0.8; margin-bottom:6px; border-bottom:1px solid rgba(255,255,255,0.2); padding-bottom:4px;">Analyzing: ${label}</div>`;
 
@@ -1801,8 +1742,6 @@ function initSettings() {
 
     if (uiEngine === 'tesseract') {
         engineSelector.value = 'tesseract';
-    } else if (uiEngine === 'manga') {
-        engineSelector.value = 'manga';
     } else {
         // Assume paddle variant or fallback
         engineSelector.value = uiEngine.startsWith('paddle_') ? uiEngine : `paddle_${paddleLines}`;
@@ -1851,19 +1790,6 @@ engineSelector.addEventListener('change', async () => {
         return;
     }
 
-    // 3.5 Intercept MangaOCR if warnings are enabled
-    if (baseMode === 'manga' && getSetting('showMangaWarning') !== false) {
-        const currentEngine = getSetting('ocrEngine');
-        const currentLines = getSetting('paddleLineCount');
-        engineSelector.value = (currentEngine === 'tesseract')
-            ? 'tesseract'
-            : (currentEngine === 'paddle' ? `paddle_${currentLines}` : currentEngine);
-
-        document.getElementById('manga-modal').classList.add('active');
-        if (selectionRect) window.drawSelectionRect();
-        return;
-    }
-
     // 4. Persist engine mode
     setSetting('ocrEngine', baseMode);
 
@@ -1903,23 +1829,6 @@ document.getElementById('paddle-cancel')?.addEventListener('click', () => {
     if (selectionRect) window.drawSelectionRect();
 });
 
-// 6.3.5 Manga Modal Event Listeners
-document.getElementById('manga-continue')?.addEventListener('click', async () => {
-    const checkbox = document.getElementById('manga-warning-checkbox');
-    if (checkbox?.checked) {
-        setSetting('showMangaWarning', false);
-    }
-
-    engineSelector.value = 'manga';
-    setSetting('ocrEngine', 'manga');
-
-    await switchEngineModular('manga');
-
-    document.getElementById('manga-modal').classList.remove('active');
-    if (selectionRect) window.drawSelectionRect();
-});
-
-document.getElementById('manga-cancel')?.addEventListener('click', () => {
     const currentEngine = getSetting('ocrEngine');
     const currentLines = getSetting('paddleLineCount');
     engineSelector.value = (currentEngine === 'tesseract') ? 'tesseract' : (currentEngine === 'paddle' ? `paddle_${currentLines}` : currentEngine);
@@ -1978,7 +1887,7 @@ async function globalInitialize() {
     // 1. Initial UI update for selector
     if (engineSelector) {
         // Map variant IDs to UI values safely
-        if (savedEngine === 'tesseract' || savedEngine === 'manga') {
+        if (savedEngine === 'tesseract') {
             engineSelector.value = savedEngine;
         } else if (savedEngine === 'paddle') {
             const lines = getSetting('paddleLineCount') || 3;

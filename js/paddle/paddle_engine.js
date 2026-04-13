@@ -36,8 +36,8 @@ export class PaddleOCR {
             const res = await fetch(this.manifestUrl);
             this.manifest = await res.json();
 
-            // Standardize model base path
-            const modelBase = "./models/paddle/";
+            // Standardize model base path (Lite Version: Flat ./models/ directory)
+            const modelBase = "./models/";
 
             if (this.manifest.normalize) {
                 this.normalize = this.manifest.normalize;
@@ -79,7 +79,7 @@ export class PaddleOCR {
 
             // Load dictionary
             this.reportStatus('loading', '🟡 PaddleOCR: loading dictionary…');
-            const dictRes = await fetch(modelBase + this.manifest.dict.path);
+            const dictRes = await fetch(modelBase + "dict.txt");
             const dictText = await dictRes.text();
             this.dict = dictText.split(/\r?\n/);
             if (this.dict.length > 0 && this.dict[this.dict.length - 1] === "") {

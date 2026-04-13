@@ -14,7 +14,7 @@
     </script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Personal OCR — Master Dashboard</title>
+    <title>PersonalOCR Lite — Master Dashboard</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin="anonymous">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet" crossorigin="anonymous">
     <link rel="stylesheet" href="styles.css">
@@ -39,7 +39,7 @@
                 <button id="menu-btn" class="menu-btn" aria-label="Menu">☰</button>
             </div>
             <div class="header-left">
-                <div class="brand">Personal OCR</div>
+                <div class="brand">PersonalOCR Lite</div>
                 <div class="divider"></div>
                 <div class="controls-group">
                     <select id="mode-selector" class="ui-select">
@@ -61,10 +61,7 @@
                             <option value="paddle_3">PaddleOCR – 3 lines</option>
                             <option value="paddle_4">PaddleOCR – 4 lines</option>
                         </optgroup>
-                        <option value="manga">MangaOCR (Japanese)</option>
                     </select>
-                    <div id="manga-note">
-                        ⚠️ <span class="manga-note-text">Best for Manga. Wide VN text may fail.</span>
                     </div>
                     <select id="tts-voice-select" class="ui-select" title="TTS Voice" style="max-width: 150px;">
                         <option value="">🔇 TTS Off</option>
@@ -219,10 +216,9 @@
                     <ul>
                         <li><strong>Tesseract:</strong> Classic OCR engine. Pairs with all Image Processing Modes (Default Mini, Adaptive, Multi-Pass, etc.). Optimized for low-latency standard text.</li>
                         <li><strong>PaddleOCR:</strong> High-precision neural recognizer. Powered by <strong>WebGPU Acceleration</strong> and <strong>Zero-Allocation</strong> memory pooling for lag-free multi-line processing. Ideal for modern HD visual novels.</li>
-                        <li><strong>MangaOCR (Japanese):</strong> Premium Transformers model. Fully optimized with <strong>WebGPU Shader Pre-Warming</strong> to eliminate stutter. Uses dedicated autoregressive buffers for smooth sentence generation. Runs entirely offline after first load.</li>
                     </ul>
                     <p style="font-size: 12px; opacity: 0.8; border-top: 1px solid var(--border); padding-top: 8px; margin-top: 10px;">
-                        <em>When <strong>PaddleOCR</strong> or <strong>MangaOCR</strong> are selected, the Image Processing Mode dropdown is purposefully bypassed — they use their own high-fidelity pipelines optimized for neural network recognition. Switch back to <strong>Tesseract</strong> to use preprocessing modes again.</em>
+                        <em>When <strong>PaddleOCR</strong> is selected, the Image Processing Mode dropdown is purposefully bypassed — they use their own high-fidelity pipelines optimized for neural network recognition. Switch back to <strong>Tesseract</strong> to use preprocessing modes again.</em>
                     </p>
                 </div>
                 <div class="guide-card">
@@ -256,7 +252,6 @@
                     <ul>
                         <li><strong>Reset to Defaults:</strong> Located in the Side Menu (≡). Use this to restore all UI, engine, and processing settings to their factory state if the application behavior becomes unexpected.</li>
                         <li><strong>UI Customization:</strong> Use the <strong>Side Menu</strong> (≡) to adjust the <strong>Text Area Size</strong> and <strong>Text Size</strong>. This is critical for matching the output to your reading distance and device screen.</li>
-                        <li><strong>Manga Focus:</strong> MangaOCR is strictly optimized for comic panels. For standard Visual Novel UI text, <strong>PaddleOCR</strong> or <strong>Tesseract</strong> will almost always yield better results.</li>
                         <li><strong>Clipboard:</strong> Select text in the output or history to auto-copy it. Toggle via <strong>Auto-Copy</strong> in the menu. Use 📋 to copy a full entry.</li>
                         <li><strong>History:</strong> The sidebar logs up to 100 lines, restored on next session. Use 📋
                             to copy any past line.</li>
@@ -285,28 +280,6 @@
             <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 12px;">
                 <button id="paddle-cancel" class="btn" style="background: var(--border); color: var(--text);">Cancel</button>
                 <button id="paddle-continue" class="btn primary">Continue</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- MANGA OCR WARNING MODAL -->
-    <div id="manga-modal" class="modal-overlay">
-        <div class="modal-content" style="max-width: 500px;">
-            <div class="modal-header">
-                <h2 style="color: #ff9800">MangaOCR Warning</h2>
-                <p>Large Model Download</p>
-            </div>
-            <div class="guide-card" style="margin-bottom: 20px;">
-                <p>This mode downloads a large Vision Transformer neural network <strong>(up to 450 MB)</strong> and is heavily optimized for reading <strong>perfectly square Manga panels</strong>. It may struggle with horizontal media interfaces.</p>
-                <p><strong>Note:</strong> Models are downloaded entirely on first use and permanently cached locally for instant offline loading in the future.</p>
-            </div>
-            <div class="checkbox-group" style="margin-bottom: 20px; display: flex; align-items: center; gap: 8px;">
-                <input type="checkbox" id="manga-warning-checkbox">
-                <label for="manga-warning-checkbox" style="font-size: 13px; color: var(--text-dim);">Do not show this warning again</label>
-            </div>
-            <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 12px;">
-                <button id="manga-cancel" class="btn" style="background: var(--border); color: var(--text);">Cancel</button>
-                <button id="manga-continue" class="btn primary">Continue to Manga</button>
             </div>
         </div>
     </div>
