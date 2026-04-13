@@ -188,7 +188,7 @@
                         <li><strong>⚠️ Compatibility Mode:</strong> High-performance features are currently blocked by browser security sandboxing.</li>
                     </ul>
                     <div style="margin-top: 10px; padding: 10px; background: rgba(16, 185, 129, 0.1); border-radius: 6px; border: 1px solid rgba(16, 185, 129, 0.2); font-size: 11px;">
-                        💡 <strong>GitHub Pages Tip:</strong> Because this is a static deployment, a <strong>manual page reload</strong> is required to activate the Service Worker and unlock WebGPU. Use the Diagnostic Table to verify your status.
+                        💡 <strong>Lite Edition Tip:</strong> This version is optimized for <strong>Local Hosting</strong> on GitHub Pages. A manual page reload is required to activate the Service Worker and unlock high-performance WebGPU features.
                     </div>
                 </div>
                 <div class="guide-card">
@@ -214,8 +214,8 @@
                     </ul>
                     <p style="margin-top:10px;">Choose your <strong>OCR Engine</strong> from the dropdown:</p>
                     <ul>
-                        <li><strong>Tesseract:</strong> Classic OCR engine. Pairs with all Image Processing Modes (Default Mini, Adaptive, Multi-Pass, etc.). Optimized for low-latency standard text.</li>
-                        <li><strong>PaddleOCR:</strong> High-precision neural recognizer. Powered by <strong>WebGPU Acceleration</strong> and <strong>Zero-Allocation</strong> memory pooling for lag-free multi-line processing. Ideal for modern HD visual novels.</li>
+                        <li><strong>Tesseract:</strong> Classic OCR engine. Pairs with all Image Processing Modes. Optimized for low-latency standard text.</li>
+                        <li><strong>PaddleOCR:</strong> High-precision neural recognizer. Loads <strong>Local ONNX Models</strong> from your <code>/models/</code> folder. Powered by <strong>WebGPU Acceleration</strong> for lag-free multi-line processing.</li>
                     </ul>
                     <p style="font-size: 12px; opacity: 0.8; border-top: 1px solid var(--border); padding-top: 8px; margin-top: 10px;">
                         <em>When <strong>PaddleOCR</strong> is selected, the Image Processing Mode dropdown is purposefully bypassed — they use their own high-fidelity pipelines optimized for neural network recognition. Switch back to <strong>Tesseract</strong> to use preprocessing modes again.</em>
@@ -270,8 +270,8 @@
                 <p>Heavy Model Initialization</p>
             </div>
             <div class="guide-card" style="margin-bottom: 20px;">
-                <p>This mode loads a large neural network (20–80 MB) and may use significant CPU/GPU resources.</p>
-                <p><strong>Note:</strong> On slower connections, the first load may take several seconds.</p>
+                <p>This mode loads local neural network models from your <code>/models/</code> directory (20–80 MB). It uses significant CPU/GPU resources for inference.</p>
+                <p><strong>Note:</strong> Ensure <code>det.onnx</code>, <code>rec.onnx</code>, and <code>dict.txt</code> are present in your host's models folder.</p>
             </div>
             <div class="checkbox-group" style="margin-bottom: 20px; display: flex; align-items: center; gap: 8px;">
                 <input type="checkbox" id="heavy-warning-checkbox">

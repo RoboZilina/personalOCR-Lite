@@ -1828,13 +1828,6 @@ document.getElementById('paddle-cancel')?.addEventListener('click', () => {
     document.getElementById('paddle-modal').classList.remove('active');
     if (selectionRect) window.drawSelectionRect();
 });
-
-    const currentEngine = getSetting('ocrEngine');
-    const currentLines = getSetting('paddleLineCount');
-    engineSelector.value = (currentEngine === 'tesseract') ? 'tesseract' : (currentEngine === 'paddle' ? `paddle_${currentLines}` : currentEngine);
-
-    document.getElementById('manga-modal').classList.remove('active');
-    if (selectionRect) window.drawSelectionRect();
 });
 
 // 6.4 Banner Event Listeners
