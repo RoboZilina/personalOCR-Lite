@@ -2,16 +2,21 @@
  * MangaOCR Engine Implementation (Dual-Session / Optimum Path)
  * Industry-standard Encoder + Decoder architecture for autoregressive inference.
  */
+import { isWebGPUSupported } from '../onnx/onnx_support.js';
 export class MangaOCREngine {
-    constructor(options = {}) {
+    constructor(manifestUrl, options = {}) {
         this.id = 'manga';
         this.label = 'MangaOCR';
+        this.manifestUrl = manifestUrl;
         this.isLoaded = false;
         
         this.encoderSession = null;
         this.decoderSession = null;
         this.vocab = null;
-        this.reportStatus = options.reportStatus || (() => {});
+        
+        // Support both legacy positional callback and modern options object
+        const finalOptions = (typeof options === 'object') ? options : { reportStatus: options };
+        this.reportStatus = finalOptions.reportStatus || (() => {});
 
         // Preprocessing constants — normalization stats loaded from preprocessor_config.json at runtime
         this.RESIZE_DIM = 224;
@@ -21,34 +26,56 @@ export class MangaOCREngine {
         // Token IDs loaded from config.json at runtime (model-specific)
         this.BOS_TOKEN_ID = null;
         this.EOS_TOKEN_ID = null;
+
+        // Hardening Patch v2.5: Decoder Buffer Reuse
+        this.decoderTokenBuffer = null;
+        this.decoderLogitsBuffer = null;
+        this.decoderMaxLength = 256; 
     }
 
     /**
      * Initializes the dual ONNX sessions.
      */
-    async load(
-        encoderPath = './models/manga/encoder_model.onnx',
-        decoderPath = './models/manga/decoder_model.onnx',
-        vocabPath = './models/manga/vocab.json',
-        configPath = './models/manga/config.json',
-        preprocessorPath = './models/manga/preprocessor_config.json'
-    ) {
+    async load() {
         if (this.isLoaded && this.encoderSession && this.decoderSession) return;
-
+        
         try {
-            console.debug(`[MANGA-DEBUG] Loading Dual-Session Models...`);
+            this.reportStatus('loading', '🟡 MangaOCR: loading manifest…');
+            const manifestRes = await fetch(this.manifestUrl);
+            const manifest = await manifestRes.json();
             
-            // Initialize sessions and all config files in parallel
-            const [enc, dec, vocabRes, configRes, preprocRes] = await Promise.all([
-                ort.InferenceSession.create(encoderPath),
-                ort.InferenceSession.create(decoderPath),
-                fetch(vocabPath),
-                fetch(configPath),
-                fetch(preprocessorPath)
+            const modelBase = "./models/manga/";
+
+            // Enable WebGPU backend for MangaOCR when available (fallback to WASM).
+            const useWebGPU = await isWebGPUSupported();
+            const executionProviders = useWebGPU ? ['webgpu', 'wasm'] : ['wasm'];
+
+            // Sequential Loading for UI Stability & Parallel Config Fetch
+            this.reportStatus('loading', '🟡 MangaOCR: loading configuration…');
+            const [vocabRes, configRes, preprocRes] = await Promise.all([
+                fetch(modelBase + manifest.vocab.path),
+                fetch(modelBase + manifest.config.path),
+                fetch(modelBase + manifest.preprocessor.path)
             ]);
 
-            this.encoderSession = enc;
-            this.decoderSession = dec;
+            // Yield for UI paint
+            await new Promise(r => setTimeout(r, 0));
+            
+            // Load Encoder
+            this.reportStatus('loading', '🟡 MangaOCR: loading encoder…');
+            const encoderPath = manifest.encoder.remote_url || (modelBase + manifest.encoder.path);
+            this.encoderSession = await ort.InferenceSession.create(encoderPath, { executionProviders });
+            console.log(`[ENGINE] MangaOCR Encoder — Active Backend: ${this.encoderSession.executionProvider || 'unknown'}`);
+
+            // Yield for UI paint
+            await new Promise(r => setTimeout(r, 0));
+            
+            // Load Decoder
+            this.reportStatus('loading', '🟡 MangaOCR: loading decoder…');
+            const decoderPath = manifest.decoder.remote_url || (modelBase + manifest.decoder.path);
+            this.decoderSession = await ort.InferenceSession.create(decoderPath, { executionProviders });
+            console.log(`[ENGINE] MangaOCR Decoder — Active Backend: ${this.decoderSession.executionProvider || 'unknown'}`);
+            
             this.vocab = await vocabRes.json();
 
             // Read token IDs from model config — never hardcode model-specific values
@@ -63,11 +90,25 @@ export class MangaOCREngine {
             this.imageStd  = preproc.image_std  ?? [0.5, 0.5, 0.5];
             console.debug(`[MANGA-DEBUG] Normalization — mean: ${this.imageMean}, std: ${this.imageStd}`);
             
+            // Warm-up WebGPU Shaders (if active)
+            await this.warmUp();
+
+            // Initialize optimization buffers (Patch v2.1.8)
+            if (!this.decoderTokenBuffer) {
+                this.decoderTokenBuffer = new BigInt64Array(this.decoderMaxLength);
+            }
+            if (!this.decoderLogitsBuffer) {
+                const vocabSize = Object.keys(this.vocab).length;
+                this.decoderLogitsBuffer = new Float32Array(vocabSize);
+                console.log('[ENGINE] MangaOCR decoder buffer reuse active');
+            }
+
             this.isLoaded = true;
-            console.debug("[MANGA-DEBUG] MangaOCR (Dual-Session) Ready.");
+            this.reportStatus('ready', '🟢 MangaOCR Ready');
         } catch (err) {
             console.error("[MANGA-ERROR] Engine Load Failed:", err);
             this.isLoaded = false;
+            this.reportStatus('error', '🔴 MangaOCR Load Failed');
             throw err;
         }
     }
@@ -133,6 +174,38 @@ export class MangaOCREngine {
      * @param {HTMLCanvasElement} sourceCanvas
      * @returns {Promise<string>} The decoded Japanese text
      */
+    /**
+     * WebGPU Shader Pre-warming (Zero-Inference Pass)
+     * Forces the browser to compile shaders during load rather than during first run.
+     */
+    async warmUp() {
+        if (!this.encoderSession || !this.decoderSession) return;
+
+        try {
+            // Micro-yield to ensure UI responsiveness
+            await new Promise(r => setTimeout(r, 0));
+
+            // Warm up Encoder (224x224)
+            const encShape = [1, 3, 224, 224];
+            const encDummy = new ort.Tensor('float32', new Float32Array(1 * 3 * 224 * 224), encShape);
+            const encoderResults = await this.encoderSession.run({ pixel_values: encDummy });
+            const encoderHiddenStates = encoderResults.last_hidden_state;
+
+            // Warm up Decoder (one step)
+            // input_ids: [1, 1], encoder_hidden_states: [1, 197, 768] (standard ViT output)
+            const inputIdsTensor = new ort.Tensor('int64', new BigInt64Array([BigInt(this.BOS_TOKEN_ID)]), [1, 1]);
+            const decoderFeeds = {
+                input_ids: inputIdsTensor,
+                encoder_hidden_states: encoderHiddenStates
+            };
+            await this.decoderSession.run(decoderFeeds);
+
+            console.log('[ENGINE] MangaOCR warm-up complete');
+        } catch (err) {
+            console.warn('[ENGINE] MangaOCR warm-up skipped (fallback or error)', err);
+        }
+    }
+
     async recognize(sourceCanvas) {
         if (!this.encoderSession || !this.decoderSession) {
             throw new Error("MangaOCREngine: ONNX sessions not initialized. Call load() first.");
@@ -148,11 +221,10 @@ export class MangaOCREngine {
             let generatedTokens = [this.BOS_TOKEN_ID]; // Using fixed BOS_TOKEN_ID!
 
             for (let step = 0; step < this.MAX_LENGTH; step++) {
-                const decoderInputIds = new BigInt64Array(generatedTokens.length);
-                for (let i = 0; i < generatedTokens.length; i++) {
-                    decoderInputIds[i] = BigInt(generatedTokens[i]);
-                }
-                const inputIdsTensor = new ort.Tensor('int64', decoderInputIds, [1, generatedTokens.length]);
+                const pos = generatedTokens.length;
+                this.decoderTokenBuffer[pos - 1] = BigInt(generatedTokens[pos - 1]);
+                
+                const inputIdsTensor = new ort.Tensor('int64', this.decoderTokenBuffer.subarray(0, pos), [1, pos]);
 
                 const decoderFeeds = {
                     input_ids: inputIdsTensor,

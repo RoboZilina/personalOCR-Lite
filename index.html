@@ -62,7 +62,12 @@
                 </div>
             </div>
             <div class="header-right">
-                <div id="ocr-status" class="status-pill loading">🔴 Loading...</div>
+                <div id="status-row" style="display:flex; align-items:center; gap:8px;">
+                    <div id="ocr-status" class="status-pill loading">🔴 Loading...</div>
+                    <span id="perf-icon" style="cursor:pointer; font-size:16px; user-select:none; margin-left: 4px;"></span>
+                </div>
+                <div id="perf-info" style="display:none; background:#fff8d6; border:1px solid #e0d27a; padding:8px 10px; margin-top:6px; font-size:12px; border-radius:6px; color: #856404; width: 100%; box-sizing: border-box;">
+                </div>
                 <button id="select-window-btn" class="btn primary"><span>Select Window Source</span></button>
             </div>
         </header>
@@ -143,6 +148,7 @@
                         </li>
                         <li>OCR runs instantly — text appears below and is copied to clipboard.</li>
                     </ol>
+                    <p style="font-size: 11px; font-style: italic; color: var(--accent); margin-bottom: 12px;">Note: The RE-CAPTURE button has a 300ms cooldown to prevent accidental double-clicks.</p>
                     <p><strong>Essential Controls:</strong></p>
                     <ul style="padding-left: 18px; line-height: 1.5; margin-bottom: 12px;">
                         <li><strong>🔄 RE-CAPTURE:</strong> Manually re-scan the same region anytime.</li>
@@ -167,6 +173,15 @@
                     <p>These extensions can instantly translate or read aloud the extracted text, making the OCR output much easier to follow.</p>
                 </div>
                 <div class="guide-card">
+                    <h3>⚡ Performance & Diagnostics</h3>
+                    <p>Check the <strong>Performance Icon</strong> next to the status pill in the header to see your hardware status:</p>
+                    <ul style="margin-bottom: 12px;">
+                        <li><strong>🔥 High-Performance:</strong> WebGPU acceleration and Multi-threading are active. OCR will be lightning-fast.</li>
+                        <li><strong>⚠️ Compatibility Mode:</strong> The browser is running in a restricted sandbox. Performance may be slower as it falls back to CPU-only processing.</li>
+                    </ul>
+                    <p><em>Tip: To unlock 🔥 mode, ensure your server headers include COOP/COEP protection.</em></p>
+                </div>
+                <div class="guide-card">
                     <h3>🔮 Image Processing Modes</h3>
                     <p>These modes prepare the image for the OCR engine. They are NOT the OCR models themselves:</p>
                     <ul>
@@ -184,14 +199,14 @@
                     <h3>🔍 Scaling &amp; OCR Engine</h3>
                     <p>Adjust the <strong>Scaling</strong> slider to upscale the capture before OCR:</p>
                     <ul>
-                        <li><strong>1x – 2x:</strong> Good for standard 1080p content with clear, large fonts.</li>
-                        <li><strong>3x – 4x:</strong> Use for 720p content or tiny packed dialogue boxes.</li>
+                        <li><strong>1x – 2x:</strong> Standard 1080p content.</li>
+                        <li><strong>3x – 4x:</strong> Small or highly packed dialogue boxes.</li>
                     </ul>
-                    <p style="margin-top:10px;">Choose your <strong>OCR Engine</strong> from the dropdown:</p>
+                    <p style="margin-top:10px;">Choose your <strong>OCR Engine</strong>:</p>
                     <ul>
-                        <li><strong>Tesseract:</strong> Classic OCR engine. Pairs with all Image Processing Modes (Default Mini, Adaptive, Multi-Pass, etc.). The <strong>jpn_best</strong> language model is loaded automatically for highest accuracy.</li>
-                        <li><strong>PaddleOCR:</strong> Neural-network recognizer. Best for high-contrast text. Includes <strong>Multi-Line</strong> variants (1–4 lines) which slice the capture area vertically. When selecting 2 or more lines, <strong>yellow visual guides</strong> will appear to help you align the rows. Loads ~20–80 MB of ONNX models on first use, permanently cached locally.</li>
-                        <li><strong>MangaOCR (Japanese):</strong> Transformers ViT model. Specifically tuned for recognizing perfectly square blocks of manga text. Automatically adapts UI and mouse constraints for best results. Downloads ~450 MB of data on first use, permanently cached for lightning-fast offline use thereafter.</li>
+                        <li><strong>Tesseract:</strong> Classic engine. Optimized for low-latency standard text.</li>
+                        <li><strong>PaddleOCR:</strong> High-precision neural recognizer. Powered by <strong>WebGPU Acceleration</strong> and <strong>Zero-Allocation</strong> memory pooling.</li>
+                        <li><strong>MangaOCR (Japanese):</strong> Premium Transformers model. Optimized with <strong>WebGPU Shader Pre-Warming</strong> to eliminate stutter.</li>
                     </ul>
                     <p style="font-size: 12px; opacity: 0.8; border-top: 1px solid var(--border); padding-top: 8px; margin-top: 10px;">
                         <em>When <strong>PaddleOCR</strong> or <strong>MangaOCR</strong> are selected, the Image Processing Mode dropdown is purposefully bypassed — they use their own high-fidelity pipelines optimized for neural network recognition. Switch back to <strong>Tesseract</strong> to use preprocessing modes again.</em>
