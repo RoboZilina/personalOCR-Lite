@@ -1,0 +1,13 @@
+{
+  "name": "vn-ocr-public",
+  "version": "3.1.1",
+  "description": "Browser-based Japanese OCR for Japanese Media",
+  "main": "app.js",
+  "scripts": {
+    "audit:braces": "node scripts/check_braces.js",
+    "audit:dom": "node scripts/audit_dom_integrity.js",
+    "audit": "node scripts/check_braces.js && node scripts/audit_dom_integrity.js"
+  },
+  "author": "RoboZilina",
+  "license": "MIT"
+}

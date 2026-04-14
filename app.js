@@ -1,4 +1,6 @@
 window.VNOCR_BUILD = "production";
+window.VNOCR_DEBUG = false; // Set to true to enable high-fidelity lifecycle tracing
+const logTrace = (msg) => { if (window.VNOCR_DEBUG) console.log(`[TRACE] ${msg}`); };
 /*
   PERSONAL OCR HARDENING PHASE:
   DO NOT MODIFY the following functions during patches:
@@ -224,12 +226,9 @@ const EngineManager = (() => {
                 console.error('Engine dispose error:', err);
             }
         }
-        currentEngine = null;
-        currentEngineId = null;
-        currentLabel = null;
-        currentCapabilities = {};
         currentInfo = { capabilities: {} };
         isReady = false;
+        logTrace(`Engine Disposed: ${currentEngineId}`);
         notifyStatus('idle', 'Engine Disposed');
     }
 
@@ -332,7 +331,8 @@ window.EngineManager = EngineManager;
  * @param {string} id - The engine ID from the registry.
  */
 async function switchEngineModular(id) {
-    // 1) Normalize UI IDs like "paddle_2" → "paddle"
+    logTrace(`Switching engine to: ${id}`);
+    const entry = engines[id] || engines['tesseract']; // Audit Fallback
     const normalizedId = id.replace(/_.+$/, "");
 
 
@@ -1027,10 +1027,8 @@ function boostContrast(canvas, factor = 1.08) {
 
 async function captureFrame(rect = null) {
     if (isProcessing) return; // Prevent overlapping cycles (Gold v3.1)
-    isProcessing = true;
-    updateCaptureButtonState();
-
     const myGen = ++captureGeneration;
+    logTrace(`Capture started. Gen: ${myGen}`);
 
     const vWidth = vnVideo.videoWidth, vHeight = vnVideo.videoHeight;
     const sel = denormalizeSelection(rect, vnVideo, selectionOverlay);
@@ -1086,6 +1084,7 @@ async function captureFrame(rect = null) {
 
         const lineCount = getSetting('paddleLineCount') || 1;
         const canvases = await preprocessForEngine(EngineManager.getInfo().id, rawCropCanvas, mode, lineCount);
+        logTrace(`Preprocessing complete. Slices: ${canvases.length}`);
         if (getSetting('debug')) console.debug("[INFERENCE-DEBUG] total slices:", canvases.length);
 
         // 3. Unified Inference Loop (Polymorphic)
@@ -1095,9 +1094,11 @@ async function captureFrame(rect = null) {
 
         const engineInfo = EngineManager.getInfo();
 
-        for (let i = 0; i < canvases.length; i++) {
-            if (canvases.length > 1) {
-                if (getSetting('debug')) console.debug(`[INFERENCE-DEBUG] processing slice ${i + 1}/${canvases.length}`);
+        const inferenceResults = await Promise.all(canvases.map(async (clean, i) => {
+            if (!clean.width || !clean.height) return null;
+
+            if (canvases.length > 1 && getSetting('debug')) {
+                console.debug(`[INFERENCE-DEBUG] processing slice ${i + 1}/${canvases.length}`);
             }
 
             // Debug Thumbnail (Modularized via metadata)
@@ -1106,31 +1107,30 @@ async function captureFrame(rect = null) {
                 else updateDebugThumb(canvases[0]);
             }
 
-            const clean = canvases[i];
-            if (!clean.width || !clean.height) continue;
-
-            if (getSetting('debug')) console.debug("[INFERENCE-DEBUG] slice dimensions:", clean.width, "x", clean.height);
-
             try {
                 const result = await EngineManager.runOCR(clean);
-                const { text } = result;
-
-                // Extract Confidence (Engine-agnostic)
-                const confidence = result.confidence ?? null;
-                if (confidence !== null) {
-                    totalConfidence += confidence;
-                    confidenceCount++;
-                }
-
-                if (text && text.trim()) {
-                    ocrLines.push(text.trim());
-                }
+                return result;
             } catch (error) {
-                const safeText = EngineManager.handleError(error);
-                ocrLines.push(safeText);
                 EngineManager.emitError(error);
+                return { text: EngineManager.handleError(error), confidence: null };
             }
-        }
+        }));
+
+        if (captureGeneration !== myGen) return;
+
+        inferenceResults.forEach(result => {
+            if (!result) return;
+            const { text, confidence } = result;
+
+            if (confidence !== null) {
+                totalConfidence += confidence;
+                confidenceCount++;
+            }
+
+            if (text && text.trim()) {
+                ocrLines.push(text.trim());
+            }
+        });
 
         if (captureGeneration !== myGen) return;
 
@@ -1148,10 +1148,10 @@ async function captureFrame(rect = null) {
             setOCRStatus('ready', '🟢 OCR Complete');
             if (typeof updateLatestText === 'function') {
                 updateLatestText(finalText);
-            }
         } else {
             setOCRStatus('ready', '⚪ No text detected');
         }
+        logTrace(`Capture Cycle Complete. Gen: ${myGen}`);
 
         // 5. Explicit Memory Cleanup (Step 9 Hardening)
         canvases.forEach(c => {
@@ -1769,149 +1769,150 @@ function initSettings() {
     if (selectionRect) drawSelectionRect();
 }
 
-// 6.2 PaddleOCR Toggle and Warning Logic
-// Unified modular switcher handles all transitions now.
+function initEventListeners_Part1() {
+    engineSelector.addEventListener('change', async () => {
+        removeMultiPassOverlay();
+        setOCRStatus('ready', '');
+        const rawValue = engineSelector.value;
 
-engineSelector.addEventListener('change', async () => {
-    removeMultiPassOverlay();
-    setOCRStatus('ready', '');
-    const rawValue = engineSelector.value;
+        let baseMode = rawValue;
+        let lineCount = null;
 
-    let baseMode = rawValue;
-    let lineCount = null;
-
-    // 1. Detect Paddle variants and parse line count
-    if (rawValue.startsWith('paddle_')) {
-        baseMode = 'paddle';
-        const parts = rawValue.split('_');
-        const parsed = parseInt(parts[1], 10);
-        if (!Number.isNaN(parsed)) {
-            lineCount = parsed;
+        // 1. Detect Paddle variants and parse line count
+        if (rawValue.startsWith('paddle_')) {
+            baseMode = 'paddle';
+            const parts = rawValue.split('_');
+            const parsed = parseInt(parts[1], 10);
+            if (!Number.isNaN(parsed)) {
+                lineCount = parsed;
+            }
         }
-    }
 
-    // 2. Persist line count immediately for Paddle variants
-    if (baseMode === 'paddle' && lineCount !== null) {
-        setSetting('paddleLineCount', lineCount);
-    }
+        // 2. Persist line count immediately for Paddle variants
+        if (baseMode === 'paddle' && lineCount !== null) {
+            setSetting('paddleLineCount', lineCount);
+        }
 
-    // 3. Intercept PaddleOCR if warnings are enabled
-    if (baseMode === 'paddle' && getSetting('showHeavyWarning')) {
+        // 3. Intercept PaddleOCR if warnings are enabled
+        if (baseMode === 'paddle' && getSetting('showHeavyWarning')) {
+            const currentEngine = getSetting('ocrEngine');
+            const currentLines = getSetting('paddleLineCount');
+            engineSelector.value = (currentEngine === 'tesseract')
+                ? 'tesseract'
+                : (currentEngine === 'paddle' ? `paddle_${currentLines}` : currentEngine);
+
+            document.getElementById('paddle-modal')?.classList.add('active');
+            if (selectionRect) window.drawSelectionRect();
+            return;
+        }
+
+        // 3.5 Intercept MangaOCR if warnings are enabled
+        if (baseMode === 'manga' && getSetting('showMangaWarning') !== false) {
+            const currentEngine = getSetting('ocrEngine');
+            const currentLines = getSetting('paddleLineCount');
+            engineSelector.value = (currentEngine === 'tesseract')
+                ? 'tesseract'
+                : (currentEngine === 'paddle' ? `paddle_${currentLines}` : currentEngine);
+
+            document.getElementById('manga-modal').classList.add('active');
+            if (selectionRect) window.drawSelectionRect();
+            return;
+        }
+
+        // 4. Persist engine mode
+        setSetting('ocrEngine', baseMode);
+
+        // 5. Switch engine using base mode only
+        await switchEngineModular(rawValue);
+
+        if (selectionRect) window.drawSelectionRect();
+    });
+}
+
+
+function initEventListeners_Part2() {
+    // 6.3 Modal Event Listeners
+    document.getElementById('paddle-continue')?.addEventListener('click', async () => {
+        const checkbox = document.getElementById('heavy-warning-checkbox');
+        if (checkbox?.checked) {
+            setSetting('showHeavyWarning', false);
+        }
+
+        const count = getSetting('paddleLineCount') || 3;
+        engineSelector.value = `paddle_${count}`;
+
+        // THE FIX: Persist the engine setting immediately so it isn't lost on the next UI sync
+        setSetting('ocrEngine', 'paddle');
+
+        await switchEngineModular(`paddle_${count}`);
+
+        document.getElementById('paddle-modal').classList.remove('active');
+        if (selectionRect) window.drawSelectionRect();
+    });
+
+    document.getElementById('paddle-cancel')?.addEventListener('click', () => {
+        // Rely on currentEngine logic to fallback
         const currentEngine = getSetting('ocrEngine');
         const currentLines = getSetting('paddleLineCount');
-        engineSelector.value = (currentEngine === 'tesseract')
-            ? 'tesseract'
-            : (currentEngine === 'paddle' ? `paddle_${currentLines}` : currentEngine);
+        engineSelector.value = (currentEngine === 'tesseract') ? 'tesseract' : (currentEngine === 'paddle' ? `paddle_${currentLines}` : currentEngine);
 
-        document.getElementById('paddle-modal')?.classList.add('active');
+        document.getElementById('paddle-modal').classList.remove('active');
         if (selectionRect) window.drawSelectionRect();
-        return;
-    }
+    });
 
-    // 3.5 Intercept MangaOCR if warnings are enabled
-    if (baseMode === 'manga' && getSetting('showMangaWarning') !== false) {
+    // 6.3.5 Manga Modal Event Listeners
+    document.getElementById('manga-continue')?.addEventListener('click', async () => {
+        const checkbox = document.getElementById('manga-warning-checkbox');
+        if (checkbox?.checked) {
+            setSetting('showMangaWarning', false);
+        }
+
+        engineSelector.value = 'manga';
+        setSetting('ocrEngine', 'manga');
+
+        await switchEngineModular('manga');
+
+        document.getElementById('manga-modal').classList.remove('active');
+        if (selectionRect) window.drawSelectionRect();
+    });
+
+    document.getElementById('manga-cancel')?.addEventListener('click', () => {
         const currentEngine = getSetting('ocrEngine');
         const currentLines = getSetting('paddleLineCount');
-        engineSelector.value = (currentEngine === 'tesseract')
-            ? 'tesseract'
-            : (currentEngine === 'paddle' ? `paddle_${currentLines}` : currentEngine);
+        engineSelector.value = (currentEngine === 'tesseract') ? 'tesseract' : (currentEngine === 'paddle' ? `paddle_${currentLines}` : currentEngine);
 
-        document.getElementById('manga-modal').classList.add('active');
+        document.getElementById('manga-modal').classList.remove('active');
         if (selectionRect) window.drawSelectionRect();
-        return;
-    }
+    });
 
-    // 4. Persist engine mode
-    setSetting('ocrEngine', baseMode);
+    // 6.4 Banner Event Listeners
+    document.getElementById('banner-switch-default')?.addEventListener('click', async () => {
+        // 1. Set the Tesseract sub-mode in settings
+        setSetting('ocrMode', 'default_mini');
 
-    // 5. Switch engine using base mode only
-    await switchEngineModular(rawValue);
+        // 2. Synchronize the UI selectors immediately
+        if (engineSelector) engineSelector.value = 'tesseract';
+        if (modeSelector) {
+            modeSelector.disabled = false;
+            modeSelector.value = 'default_mini';
+        }
 
-    if (selectionRect) window.drawSelectionRect();
-});
+        // 3. Trigger the actual engine switch to unload Paddle and load Tesseract
+        await switchEngineModular('tesseract');
 
+        // 4. Close banner and refresh visual guides
+        document.getElementById('startup-banner')?.classList.remove('active');
+        if (selectionRect) window.drawSelectionRect();
+    });
 
-// 6.3 Modal Event Listeners
-document.getElementById('paddle-continue')?.addEventListener('click', async () => {
-    const checkbox = document.getElementById('heavy-warning-checkbox');
-    if (checkbox?.checked) {
-        setSetting('showHeavyWarning', false);
-    }
+    document.getElementById('banner-nocall-checkbox')?.addEventListener('change', (e) => {
+        setSetting('showHeavyWarning', !e.target.checked);
+    });
 
-    const count = getSetting('paddleLineCount') || 3;
-    engineSelector.value = `paddle_${count}`;
-
-    // THE FIX: Persist the engine setting immediately so it isn't lost on the next UI sync
-    setSetting('ocrEngine', 'paddle');
-
-    await switchEngineModular(`paddle_${count}`);
-
-    document.getElementById('paddle-modal').classList.remove('active');
-    if (selectionRect) window.drawSelectionRect();
-});
-
-document.getElementById('paddle-cancel')?.addEventListener('click', () => {
-    // Rely on currentEngine logic to fallback
-    const currentEngine = getSetting('ocrEngine');
-    const currentLines = getSetting('paddleLineCount');
-    engineSelector.value = (currentEngine === 'tesseract') ? 'tesseract' : (currentEngine === 'paddle' ? `paddle_${currentLines}` : currentEngine);
-
-    document.getElementById('paddle-modal').classList.remove('active');
-    if (selectionRect) window.drawSelectionRect();
-});
-
-// 6.3.5 Manga Modal Event Listeners
-document.getElementById('manga-continue')?.addEventListener('click', async () => {
-    const checkbox = document.getElementById('manga-warning-checkbox');
-    if (checkbox?.checked) {
-        setSetting('showMangaWarning', false);
-    }
-
-    engineSelector.value = 'manga';
-    setSetting('ocrEngine', 'manga');
-
-    await switchEngineModular('manga');
-
-    document.getElementById('manga-modal').classList.remove('active');
-    if (selectionRect) window.drawSelectionRect();
-});
-
-document.getElementById('manga-cancel')?.addEventListener('click', () => {
-    const currentEngine = getSetting('ocrEngine');
-    const currentLines = getSetting('paddleLineCount');
-    engineSelector.value = (currentEngine === 'tesseract') ? 'tesseract' : (currentEngine === 'paddle' ? `paddle_${currentLines}` : currentEngine);
-
-    document.getElementById('manga-modal').classList.remove('active');
-    if (selectionRect) window.drawSelectionRect();
-});
-
-// 6.4 Banner Event Listeners
-document.getElementById('banner-switch-default')?.addEventListener('click', async () => {
-    // 1. Set the Tesseract sub-mode in settings
-    setSetting('ocrMode', 'default_mini');
-
-    // 2. Synchronize the UI selectors immediately
-    if (engineSelector) engineSelector.value = 'tesseract';
-    if (modeSelector) {
-        modeSelector.disabled = false;
-        modeSelector.value = 'default_mini';
-    }
-
-    // 3. Trigger the actual engine switch to unload Paddle and load Tesseract
-    await switchEngineModular('tesseract');
-
-    // 4. Close banner and refresh visual guides
-    document.getElementById('startup-banner')?.classList.remove('active');
-    if (selectionRect) window.drawSelectionRect();
-});
-
-document.getElementById('banner-nocall-checkbox')?.addEventListener('change', (e) => {
-    setSetting('showHeavyWarning', !e.target.checked);
-});
-
-document.getElementById('banner-close')?.addEventListener('click', () => {
-    document.getElementById('startup-banner')?.classList.remove('active');
-});
+    document.getElementById('banner-close')?.addEventListener('click', () => {
+        document.getElementById('startup-banner')?.classList.remove('active');
+    });
+}
 
 // 6.5 Global Initialization
 async function globalInitialize() {
@@ -1955,6 +1956,8 @@ async function globalInitialize() {
 
     initHelpModal();
     initSettings();
+    initEventListeners_Part1();
+    initEventListeners_Part2();
 
     // Ensure panic button is removed from UI as fallback/panic logic is retired
     document.getElementById('panic-btn')?.remove();
@@ -2143,8 +2146,7 @@ document.addEventListener('DOMContentLoaded', globalInitialize);
 
     const openGuide = () => {
         if (getSetting('debug')) console.debug("[MENU] Opening User Guide...");
-        const modal = document.getElementById('guide-modal');
-        if (modal) modal.classList.add('active');
+        openUserGuide();
     };
 
     const openContact = () => {
@@ -2197,7 +2199,7 @@ document.addEventListener('DOMContentLoaded', globalInitialize);
 
 /** Public API Namespace (Auditability Phase) */
 window.VNOCR = {
-    version: '3.1.0-GOLD-CF',
+    version: '3.1.1-GOLD-CF',
     isReady: EngineManager.isReady,
     drawSelectionRect: window.drawSelectionRect,
     captureFrame: window.captureFrame,
