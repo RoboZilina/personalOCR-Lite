@@ -450,7 +450,7 @@ let currentUtterance = null;
 let videoStream = null;
 
 
-let isProcessing = false;
+// Redundant declaration removed to resolve SyntaxError in Gold v3.1.1
 let captureGeneration = 0;
 let selectionRect = null;
 let multiPassOverlayCollapsed = false;
