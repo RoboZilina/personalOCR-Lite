@@ -68,28 +68,21 @@ const upscaleVal = document.getElementById('upscale-val');
 const perfIcon = document.getElementById('perf-icon');
 const perfInfo = document.getElementById('perf-info');
 
-// === Throttling & Readiness State (Patch v2.5) ===
+// === Throttling & Readiness State (Patch v3.1 Gold) ===
 let captureLocked = false;
-let engineReady = false;
+let engineReady = false; 
+let isProcessing = false; // Unified state tracking for OCR cycles
 
 function updateCaptureButtonState() {
     if (!refreshOcrBtn) return;
-    const shouldBeDisabled = !engineReady || captureLocked;
+    // Heartbed Sync: Factor in engine readiness, button lock, AND active processing
+    const shouldBeDisabled = !engineReady || captureLocked || isProcessing;
     refreshOcrBtn.disabled = shouldBeDisabled;
     refreshOcrBtn.classList.toggle('disabled', shouldBeDisabled);
 }
 
 // Hook into EngineManager Lifecycle
-if (window.EngineManager) {
-    EngineManager.onReady(() => {
-        engineReady = true;
-        updateCaptureButtonState();
-    });
-    EngineManager.onLoading(() => {
-        engineReady = false;
-        updateCaptureButtonState();
-    });
-}
+// Bridge Phase: EngineManager observers relocated to globalInitialize footer for Gold v3.1 stability
 
 // Phase 2: Lazy-load state initialization
 modeSelector.disabled = (engineSelector.value !== 'tesseract');
@@ -410,8 +403,8 @@ async function switchEngineModular(id) {
         return;
     }
 
-    // Non-blocking engine load trigger
-    EngineManager.switchEngine({
+    // Gold v3.1 Hardening: Deterministic awaited engine switch
+    await EngineManager.switchEngine({
         ...registryEntry,
         id: normalizedId
     }).catch(err => {
@@ -492,13 +485,7 @@ function loadVoices() {
 window.speechSynthesis.onvoiceschanged = loadVoices;
 loadVoices();
 
-if (upscaleSlider) {
-    upscaleSlider.oninput = () => {
-        const val = parseFloat(upscaleSlider.value);
-        if (upscaleVal) upscaleVal.textContent = val.toFixed(1);
-        setSetting('upscaleFactor', val);
-    };
-}
+// Gold v3.1: Moved upscaleSlider.oninput to initSettings for unified state management
 
 // Step 2: Wire EngineManager (passive listener)
 EngineManager.onStatusChange(({ state, text }) => {
@@ -908,13 +895,18 @@ if (autoToggle) {
         if (autoToggle.checked) {
             if (label) label.textContent = "auto re-capture ON";
             if (autoCaptureTimer) clearInterval(autoCaptureTimer);
+            
+            // Gold v3.1 Guard: Prevent recursive reloads during side-menu interactions
             (async () => {
-                await switchEngineModular(EngineManager.getInfo().id || engineSelector?.value || "tesseract");
+                if (!EngineManager.isReady()) {
+                    await switchEngineModular(EngineManager.getInfo().id || engineSelector?.value || "tesseract");
+                }
                 autoCaptureTimer = setInterval(checkAutoCapture, 500);
             })();
         } else {
             if (label) label.textContent = "auto re-capture OFF";
             clearInterval(autoCaptureTimer);
+            if (stabilityTimer) clearTimeout(stabilityTimer); // Gold v3.1 Phantom Cleanup
             autoToggle.parentElement.classList.remove('active');
         }
     };
@@ -1071,10 +1063,11 @@ function boostContrast(canvas, factor = 1.08) {
     return out;
 }
 
-async function captureFrame(rect) {
-    if (!vnVideo || !vnVideo.videoWidth || !rect || isProcessing) return;
+async function captureFrame(rect = null) {
+    if (isProcessing) return; // Prevent overlapping cycles (Gold v3.1)
     isProcessing = true;
-    // if (getSetting('debug')) console.log("Capture triggered");
+    updateCaptureButtonState();
+
     const myGen = ++captureGeneration;
 
     const vWidth = vnVideo.videoWidth, vHeight = vnVideo.videoHeight;
@@ -1131,7 +1124,7 @@ async function captureFrame(rect) {
 
         const lineCount = getSetting('paddleLineCount') || 1;
         const canvases = await preprocessForEngine(EngineManager.getInfo().id, rawCropCanvas, mode, lineCount);
-        console.debug("[INFERENCE-DEBUG] total slices:", canvases.length);
+        if (getSetting('debug')) console.debug("[INFERENCE-DEBUG] total slices:", canvases.length);
 
         // 3. Unified Inference Loop (Polymorphic)
         const ocrLines = [];
@@ -1226,6 +1219,7 @@ async function captureFrame(rect) {
             if (EngineManager.isReady()) {
                 setOCRStatus('ready', EngineManager.getReadyStatus());
             }
+            updateCaptureButtonState(); // UI Heartbeat Sync (Gold v3.1)
         }, 100);
     }
 }
@@ -1765,7 +1759,23 @@ function initHelpModal() {
 // 6.1 Initialization
 function initSettings() {
     loadSettings();
-    applySettingsToUI();
+    applySettingsToUI(); // Initial sync for Theme/Visuals
+
+    // Gold v3.1 Hardened Persistence: Real-time wiring for sliders and checkboxes
+    if (upscaleSlider) {
+        upscaleSlider.oninput = () => {
+            const val = parseFloat(upscaleSlider.value);
+            setSetting('upscaleFactor', val);
+            if (upscaleVal) upscaleVal.textContent = val.toFixed(1);
+        };
+    }
+
+    const heavyWarningCheckbox = document.getElementById('banner-nocall-checkbox');
+    if (heavyWarningCheckbox) {
+        heavyWarningCheckbox.onchange = () => {
+            setSetting('showHeavyWarning', !heavyWarningCheckbox.checked);
+        };
+    }
 
     const engine = getSetting('ocrEngine') || 'tesseract';
     const paddleLines = getSetting('paddleLineCount') || 3;
@@ -1999,6 +2009,30 @@ async function globalInitialize() {
 
 
 
+    // 4. Final Status Affirmation
+    setOCRStatus('ready', savedEngine);
+
+    // Hardening: Reality-Sync UI Observers (Gold v3.1)
+    // We attach these AFTER the first engine load is triggered to ensure
+    // EngineManager is fully initialized and operational.
+    EngineManager.onReady(() => {
+        engineReady = true;
+        updateCaptureButtonState();
+    });
+    EngineManager.onLoading(() => {
+        engineReady = false;
+        updateCaptureButtonState();
+    });
+
+    // Final Sync: Check if the engine is already ready from a restored session
+    engineReady = EngineManager.isReady();
+    updateCaptureButtonState();
+
+    // Settings Hardening: Final UI Sync (Two-Pass Sync)
+    // We fire this at the VERY end to ensure the DOM grid and sidebar are stable
+    // before applying layout classes like .history-hidden
+    applySettingsToUI();
+
     // Service Worker with update notification
     if ('serviceWorker' in navigator) {
         const disableViaParam = new URLSearchParams(location.search).has('no-sw');
@@ -2062,7 +2096,8 @@ async function globalInitialize() {
 
 }
 
-globalInitialize();
+// Gold v3.1 Hardening: Absolute Hydration Safety
+document.addEventListener('DOMContentLoaded', globalInitialize);
 
 /* ========================================== */
 /* PHASE 6 — HAMBURGER MENU MIRROR            */
@@ -2152,7 +2187,7 @@ globalInitialize();
 
 /** Public API Namespace (Auditability Phase) */
 window.VNOCR = {
-    version: '2.5',
+    version: '3.1nomangaOCR-CF',
     isReady: EngineManager.isReady,
     drawSelectionRect: window.drawSelectionRect,
     captureFrame: window.captureFrame,

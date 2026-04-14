@@ -277,6 +277,23 @@ body.text-area-large .app-main.manga-layout .transcription-tray { width: 650px; 
 /* 4. MODALS & GUIDE                          */
 /* ========================================== */
 
+.perf-diagnostic-box {
+    position: absolute;
+    top: 50px;
+    right: 0;
+    width: 320px;
+    background: var(--panel);
+    backdrop-filter: blur(16px);
+    border: 1px solid var(--border);
+    padding: 16px;
+    border-radius: 12px;
+    font-size: 13px;
+    color: var(--text);
+    box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+    z-index: 1000;
+    line-height: 1.5;
+}
+
 .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.8); backdrop-filter: blur(10px); z-index: 9999; display: flex; align-items: center; justify-content: center; padding: 20px; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); opacity: 0; visibility: hidden; pointer-events: none; }
 .modal-overlay.active { opacity: 1; visibility: visible; pointer-events: all; }
 .modal-content { background: var(--panel); border: 1px solid var(--border); border-radius: 16px; width: 100%; max-width: 800px; max-height: 90vh; overflow-y: auto; position: relative; padding: 40px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5); transform: translateY(20px); transition: transform 0.3s; }
