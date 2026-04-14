@@ -34,10 +34,43 @@ export class MangaOCREngine {
     }
 
     /**
-     * Initializes the dual ONNX sessions.
+     * Hybrid Integrity Check (Hardening v2.1.10).
+     * Pings local config and remote models for Cloudflare compatibility.
+     */
+    async checkAssets() {
+        const modelBase = "./models/manga/";
+        const assets = [
+            { url: modelBase + 'vocab.json', type: 'local' },
+            { url: modelBase + 'config.json', type: 'local' },
+            { url: modelBase + 'preprocessor_config.json', type: 'local' },
+            { url: 'https://github.com/RoboZilina/personalOCR/releases/latest/download/encoder_model.onnx', type: 'remote' },
+            { url: 'https://github.com/RoboZilina/personalOCR/releases/latest/download/decoder_model.onnx', type: 'remote' }
+        ];
+        
+        try {
+            const results = await Promise.all(assets.map(a => fetch(a.url, { method: 'HEAD' })));
+            const allFound = results.every(res => res.ok);
+            
+            const diagAssets = document.getElementById('diag-assets');
+            if (diagAssets) {
+                diagAssets.textContent = allFound ? '✅ FOUND' : '❌ MISSING';
+                diagAssets.className = allFound ? 'diag-status-ok' : 'diag-status-fail';
+            }
+            return allFound;
+        } catch (err) {
+            console.warn("MangaOCR: Hybrid check failed:", err);
+            return false;
+        }
+    }
+
+    /**
+     * Initializes the dual ONNX sessions via Hybrid Loader.
      */
     async load() {
         if (this.isLoaded && this.encoderSession && this.decoderSession) return;
+
+        // Non-blocking integrity ping
+        this.checkAssets();
         
         try {
             this.reportStatus('loading', '🟡 MangaOCR: loading manifest…');
@@ -50,7 +83,7 @@ export class MangaOCREngine {
             const useWebGPU = await isWebGPUSupported();
             const executionProviders = useWebGPU ? ['webgpu', 'wasm'] : ['wasm'];
 
-            // Sequential Loading for UI Stability & Parallel Config Fetch
+            // Sequential Loading (Hybrid: Remote Priority for Models)
             this.reportStatus('loading', '🟡 MangaOCR: loading configuration…');
             const [vocabRes, configRes, preprocRes] = await Promise.all([
                 fetch(modelBase + manifest.vocab.path),

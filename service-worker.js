@@ -1,7 +1,7 @@
 // === VERSION — Update CACHE_NAME on every release ===
 // This is the ONLY version string in the project.
 // Serve this file with Cache-Control: no-cache in production.
-const CACHE_NAME = 'vn-ocr-cache-v2.5';
+const CACHE_NAME = 'vn-ocr-cache-v3.1nomangaOCR-CF';
 const ASSETS = [
     './',
     './index.html',
@@ -42,13 +42,7 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
     const url = new URL(event.request.url);
 
-    // 1. Bypass Service Worker for PaddleOCR model files (Large ONNX binaries)
-    if (url.pathname.includes('/models/paddle/')) {
-        event.respondWith(fetch(event.request));
-        return;
-    }
-
-    // 2. CDN requests: network-only
+    // 1. CDN / GitHub Releases: network-only
     if (url.origin !== location.origin) {
         event.respondWith(fetch(event.request));
         return;
@@ -70,7 +64,12 @@ self.addEventListener('fetch', (event) => {
         return;
     }
 
-    // 4. Local assets: stale-while-revalidate
+    // 4. Local assets: stale-while-revalidate (excludes massive models)
+    if (url.pathname.endsWith('.onnx') || url.pathname.endsWith('.traineddata')) {
+        event.respondWith(fetch(event.request));
+        return;
+    }
+
     event.respondWith(
         caches.open(CACHE_NAME).then(cache =>
             cache.match(event.request).then(cached => {

@@ -5,8 +5,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Personal OCR — Master Dashboard</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin="anonymous">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet" crossorigin="anonymous">
     <link rel="stylesheet" href="styles.css">
     <link rel="manifest" href="manifest.json">
     <meta http-equiv="Content-Security-Policy"
@@ -66,8 +64,7 @@
                     <div id="ocr-status" class="status-pill loading">🔴 Loading...</div>
                     <span id="perf-icon" style="cursor:pointer; font-size:16px; user-select:none; margin-left: 4px;"></span>
                 </div>
-                <div id="perf-info" style="display:none; background:#fff8d6; border:1px solid #e0d27a; padding:8px 10px; margin-top:6px; font-size:12px; border-radius:6px; color: #856404; width: 100%; box-sizing: border-box;">
-                </div>
+                <div id="perf-info" class="perf-diagnostic-box" style="display:none;"></div>
                 <button id="select-window-btn" class="btn primary"><span>Select Window Source</span></button>
             </div>
         </header>
@@ -180,6 +177,14 @@
                         <li><strong>⚠️ Compatibility Mode:</strong> The browser is running in a restricted sandbox. Performance may be slower as it falls back to CPU-only processing.</li>
                     </ul>
                     <p><em>Tip: To unlock 🔥 mode, ensure your server headers include COOP/COEP protection.</em></p>
+                    
+                    <h4 style="margin-top: 15px; margin-bottom: 8px;">System Integrity</h4>
+                    <table class="diag-table" style="width: 100%; border-collapse: collapse; font-size: 11px;">
+                        <tr style="border-bottom: 1px solid var(--border);">
+                            <td style="padding: 4px 0;">Model Assets (Hybrid)</td>
+                            <td id="diag-assets" class="diag-status-ok" style="text-align: right; font-weight: bold;">INIT…</td>
+                        </tr>
+                    </table>
                 </div>
                 <div class="guide-card">
                     <h3>🔮 Image Processing Modes</h3>

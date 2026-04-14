@@ -128,9 +128,8 @@ export function applySettingsToUI() {
     // 4.5 Capture Preview Visibility
     document.body.classList.toggle('preview-hidden', String(currentSettings.previewVisible) === 'false');
 
-    // Note: showHeavyWarning is used for logic, not a direct UI element usually,
-    // but we can bind it if a checkbox exists in a settings menu.
-    const warningCheckbox = document.querySelector("#heavy-warning-checkbox");
+    // Note: showHeavyWarning is used for logic, specifically the startup banner
+    const warningCheckbox = document.querySelector("#banner-nocall-checkbox");
     if (warningCheckbox) warningCheckbox.checked = !currentSettings.showHeavyWarning;
 
     // 5. Size modifiers via body classes

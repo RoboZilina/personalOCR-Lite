@@ -1,5 +1,25 @@
 /* ========================================== */
-/* 1. VARIABLES & BASE                        */
+/* 1. TYPOGRAPHY (HARDENING v2.1.10)          */
+/* ========================================== */
+
+@font-face {
+  font-family: 'Inter';
+  src: url('./fonts/inter/Inter-VariableFont_opsz,wght.ttf') format('truetype');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Inter';
+  src: url('./fonts/inter/Inter-Italic-VariableFont_opsz,wght.ttf') format('truetype');
+  font-weight: 100 900;
+  font-style: italic;
+  font-display: swap;
+}
+
+/* ========================================== */
+/* 2. VARIABLES & BASE                        */
 /* ========================================== */
 
 :root {
@@ -257,6 +277,23 @@ body.text-area-large .app-main.manga-layout .transcription-tray { width: 650px; 
 /* 4. MODALS & GUIDE                          */
 /* ========================================== */
 
+.perf-diagnostic-box {
+    position: absolute;
+    top: 50px;
+    right: 0;
+    width: 320px;
+    background: var(--panel);
+    backdrop-filter: blur(16px);
+    border: 1px solid var(--border);
+    padding: 16px;
+    border-radius: 12px;
+    font-size: 13px;
+    color: var(--text);
+    box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+    z-index: 1000;
+    line-height: 1.5;
+}
+
 .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.8); backdrop-filter: blur(10px); z-index: 9999; display: flex; align-items: center; justify-content: center; padding: 20px; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); opacity: 0; visibility: hidden; pointer-events: none; }
 .modal-overlay.active { opacity: 1; visibility: visible; pointer-events: all; }
 .modal-content { background: var(--panel); border: 1px solid var(--border); border-radius: 16px; width: 100%; max-width: 800px; max-height: 90vh; overflow-y: auto; position: relative; padding: 40px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5); transform: translateY(20px); transition: transform 0.3s; }
@@ -492,6 +529,26 @@ body.light-theme .guide-card { background: #f1f5f9; border-color: #e2e8f0; }
 @keyframes slide-down {
     from { transform: translateY(-100%); }
     to { transform: translateY(0); }
+}
+
+/* PREMIUM UX HARDENING v2.1.10 */
+.copied-flash { 
+    position: relative; 
+    transition: all 0.2s cubic-bezier(0.18, 0.89, 0.32, 1.28);
+}
+.copied-flash::after {
+    content: '';
+    position: absolute;
+    inset: -4px;
+    border: 2px solid var(--accent);
+    border-radius: 8px;
+    animation: flash-border 0.6s ease-out forwards;
+    pointer-events: none;
+    z-index: 10;
+}
+@keyframes flash-border {
+    0% { opacity: 1; transform: scale(1); }
+    100% { opacity: 0; transform: scale(1.05); }
 }
 
 
