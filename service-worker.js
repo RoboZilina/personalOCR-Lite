@@ -42,13 +42,7 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
     const url = new URL(event.request.url);
 
-    // 1. Bypass Service Worker for PaddleOCR model files (Large ONNX binaries)
-    if (url.pathname.includes('/models/paddle/')) {
-        event.respondWith(fetch(event.request));
-        return;
-    }
-
-    // 2. CDN requests: network-only
+    // 1. CDN / GitHub Releases: network-only
     if (url.origin !== location.origin) {
         event.respondWith(fetch(event.request));
         return;

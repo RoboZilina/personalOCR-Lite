@@ -8,20 +8,56 @@ export class TesseractEngine {
     }
 
     /**
-     * Initializes the Tesseract worker and loads the 'jpn_best' model.
-     * Configuration matches the existing app.js implementation for consistency.
+     * Hybrid Integrity Check (Hardening v2.1.10).
+     * Pings local workers and remote data to ensure Cloudflare-compatible deployment.
+     */
+    async checkAssets() {
+        const localAssets = [
+            './js/tesseract/worker.min.js',
+            './js/tesseract/tesseract-core.wasm.js'
+        ];
+        const remoteAssets = [
+            'https://github.com/RoboZilina/personalOCR/releases/latest/download/jpn.traineddata'
+        ];
+        
+        try {
+            const [localResults, remoteResults] = await Promise.all([
+                Promise.all(localAssets.map(url => fetch(url, { method: 'HEAD' }))),
+                Promise.all(remoteAssets.map(url => fetch(url, { method: 'HEAD' })))
+            ]);
+            
+            const allFound = [...localResults, ...remoteResults].every(res => res.ok);
+            
+            const diagAssets = document.getElementById('diag-assets');
+            if (diagAssets) {
+                diagAssets.textContent = allFound ? '✅ FOUND' : '❌ MISSING';
+                diagAssets.className = allFound ? 'diag-status-ok' : 'diag-status-fail';
+            }
+            return allFound;
+        } catch (err) {
+            console.warn("Tesseract: Hybrid asset check failed:", err);
+            return false;
+        }
+    }
+
+    /**
+     * Initializes the Tesseract worker via Hybrid Loader.
      */
     async load() {
         if (this.isLoaded && this.worker) return;
 
+        this.checkAssets();
+
         try {
-            // Configuration for jpn_best as per legacy app.js logic
-            const langPath = 'https://cdn.jsdelivr.net/gh/tesseract-ocr/tessdata_best@4.0.0/';
+            // Hybrid Paths: GitHub for heavy data, Local for worker logic
+            const langPath = 'https://github.com/RoboZilina/personalOCR/releases/latest/download/';
             const useGzip = false;
             const actualLang = 'jpn';
 
             this.worker = await Tesseract.createWorker(actualLang, 1, {
                 langPath: langPath,
+                workerPath: './js/tesseract/worker.min.js',
+                corePath: './js/tesseract/tesseract-core.wasm.js',
                 gzip: useGzip,
                 logger: m => {
                     if (m.status === 'loading language traineddata') {

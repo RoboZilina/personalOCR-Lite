@@ -1,5 +1,25 @@
 /* ========================================== */
-/* 1. VARIABLES & BASE                        */
+/* 1. TYPOGRAPHY (HARDENING v2.1.10)          */
+/* ========================================== */
+
+@font-face {
+  font-family: 'Inter';
+  src: url('./fonts/inter/Inter-VariableFont_opsz,wght.ttf') format('truetype');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Inter';
+  src: url('./fonts/inter/Inter-Italic-VariableFont_opsz,wght.ttf') format('truetype');
+  font-weight: 100 900;
+  font-style: italic;
+  font-display: swap;
+}
+
+/* ========================================== */
+/* 2. VARIABLES & BASE                        */
 /* ========================================== */
 
 :root {
@@ -492,6 +512,26 @@ body.light-theme .guide-card { background: #f1f5f9; border-color: #e2e8f0; }
 @keyframes slide-down {
     from { transform: translateY(-100%); }
     to { transform: translateY(0); }
+}
+
+/* PREMIUM UX HARDENING v2.1.10 */
+.copied-flash { 
+    position: relative; 
+    transition: all 0.2s cubic-bezier(0.18, 0.89, 0.32, 1.28);
+}
+.copied-flash::after {
+    content: '';
+    position: absolute;
+    inset: -4px;
+    border: 2px solid var(--accent);
+    border-radius: 8px;
+    animation: flash-border 0.6s ease-out forwards;
+    pointer-events: none;
+    z-index: 10;
+}
+@keyframes flash-border {
+    0% { opacity: 1; transform: scale(1); }
+    100% { opacity: 0; transform: scale(1.05); }
 }
 
 

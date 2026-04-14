@@ -30,7 +30,45 @@ export class PaddleOCR {
         return await this.loadModels();
     }
 
+    /**
+     * Hybrid Integrity Check (Hardening v2.1.10).
+     * Pings local config/dict and remote models for Cloudflare compatibility.
+     */
+    async checkAssets() {
+        const modelBase = "./models/paddle/";
+        
+        // Load manifest locally first to get remote URLs
+        try {
+            const res = await fetch(modelBase + 'manifest.json', { method: 'HEAD' });
+            const manifestExists = res.ok;
+
+            // Define critical assets based on Cloudflare 25MB splitting
+            const assets = [
+                { url: modelBase + 'manifest.json', type: 'local' },
+                { url: modelBase + 'japan_dict.txt', type: 'local' },
+                { url: 'https://github.com/RoboZilina/personalOCR/releases/latest/download/det.onnx', type: 'remote' },
+                { url: 'https://github.com/RoboZilina/personalOCR/releases/latest/download/rec.onnx', type: 'remote' }
+            ];
+            
+            const results = await Promise.all(assets.map(a => fetch(a.url, { method: 'HEAD' })));
+            const allFound = results.every(res => res.ok);
+            
+            const diagAssets = document.getElementById('diag-assets');
+            if (diagAssets) {
+                diagAssets.textContent = allFound ? '✅ FOUND' : '❌ MISSING';
+                diagAssets.className = allFound ? 'diag-status-ok' : 'diag-status-fail';
+            }
+            return allFound;
+        } catch (err) {
+            console.warn("PaddleOCR: Hybrid check failed:", err);
+            return false;
+        }
+    }
+
     async loadModels() {
+        // Non-blocking integrity ping
+        this.checkAssets();
+
         try {
             this.reportStatus('loading', '🟡 PaddleOCR: loading manifest…');
             const res = await fetch(this.manifestUrl);
@@ -54,7 +92,7 @@ export class PaddleOCR {
             const useWebGPU = await isWebGPUSupported();
             const executionProviders = useWebGPU ? ['webgpu', 'wasm'] : ['wasm'];
 
-            // Load detection model
+            // Load detection model (Hybrid: Remote Priority)
             this.reportStatus('loading', '🟡 PaddleOCR: loading detection model…');
             const detPath = this.manifest.det.remote_url || (modelBase + this.manifest.det.path);
             let detBuffer = await fetchWithProgress(

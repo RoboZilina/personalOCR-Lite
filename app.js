@@ -698,14 +698,17 @@ if (historyContent) {
 }
 
 if (latestText) {
-    latestText.addEventListener('mouseup', () => {
+    latestText.addEventListener('mouseup', async () => {
         if (!getSetting('autoCopy')) return;
         const sel = window.getSelection().toString().trim();
         if (!sel) return;
-        navigator.clipboard.writeText(sel).then(() => {
-            latestText.style.outline = '2px solid var(--accent)';
-            setTimeout(() => { latestText.style.outline = ''; }, 300);
-        }).catch(() => { });
+        try {
+            await navigator.clipboard.writeText(sel);
+            latestText.classList.add('copied-flash');
+            setTimeout(() => latestText.classList.remove('copied-flash'), 200);
+        } catch (err) {
+            console.warn("[UX] Auto-Copy failed (clipboard restricted):", err);
+        }
     });
 }
 
@@ -805,14 +808,22 @@ if (selectionOverlay) {
         applyMangaConstraint();
 
         const w = selectionOverlay.width, h = selectionOverlay.height;
+        const selX = Math.min(startX, currentX);
+        const selY = Math.min(startY, currentY);
+        const selW = Math.abs(currentX - startX);
+        const selH = Math.abs(currentY - startY);
+
+        // Hardware Hardening Point 2: 8x8px Crop Clamp
+        const isValidCrop = selW >= 8 && selH >= 8;
+
         const finalRect = {
-            x: Math.min(startX, currentX) / w,
-            y: Math.min(startY, currentY) / h,
-            width: Math.abs(currentX - startX) / w,
-            height: Math.abs(currentY - startY) / h
+            x: selX / w,
+            y: selY / h,
+            width: selW / w,
+            height: selH / h
         };
         const hint = document.getElementById('selection-hint');
-        if (finalRect.width > 0.005) {
+        if (isValidCrop) {
             selectionRect = finalRect;
             
             // Throttled First Capture (Patch v2.5)
@@ -832,6 +843,7 @@ if (selectionOverlay) {
         } else {
             selectionRect = null;
             if (hint) hint.classList.add('visible');
+            setOCRStatus('ready', '⚪ Selection too small (min 8x8px)');
         }
         drawSelectionRect();
     });
@@ -1189,6 +1201,8 @@ async function captureFrame(rect) {
         // 5. Explicit Memory Cleanup (Step 9 Hardening)
         canvases.forEach(c => {
             if (c && c !== rawCropCanvas) {
+                const ctx = c.getContext('2d');
+                if (ctx) ctx.clearRect(0, 0, c.width, c.height);
                 c.width = 0;
                 c.height = 0;
             }
@@ -1200,6 +1214,8 @@ async function captureFrame(rect) {
     finally {
         // 6. Final Memory Hardening: Zero out the source crop
         if (rawCropCanvas) {
+            const ctx = rawCropCanvas.getContext('2d');
+            if (ctx) ctx.clearRect(0, 0, rawCropCanvas.width, rawCropCanvas.height);
             rawCropCanvas.width = 0;
             rawCropCanvas.height = 0;
         }
@@ -2097,7 +2113,7 @@ globalInitialize();
 
     if (menuContact) menuContact.onclick = () => {
         console.debug("[MENU] Opening GitHub Issues Page...");
-        window.open('https://github.com/RoboZilina/personalOCR/issues/new', '_blank');
+        window.open('https://github.com/RoboZilina/personalOCR/issues/new', '_blank', 'noopener,noreferrer');
         closeMenu();
     };
 
