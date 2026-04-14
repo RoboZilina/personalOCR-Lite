@@ -72,7 +72,16 @@
                         <div id="ocr-status" class="status-pill loading">🔴 Loading...</div>
                         <span id="perf-icon" class="perf-pill" title="Performance Diagnostics"></span>
                     </div>
-                    <div id="perf-info" class="perf-diagnostic-box" style="display:none;"></div>
+                    <div id="perf-info" class="perf-diagnostic-box" style="display:none;">
+                        <div class="diag-header">Hardware Status</div>
+                        <table class="diag-table">
+                            <tr><td>WebGPU Acceleration</td><td id="diag-webgpu" class="diag-status-fail">OFF</td></tr>
+                            <tr><td>Cross-Origin Isolation</td><td id="diag-isolation" class="diag-status-fail">OFF</td></tr>
+                            <tr><td>WASM Multi-threading</td><td id="diag-threads" class="diag-status-fail">OFF</td></tr>
+                            <tr><td>Model Assets</td><td id="diag-assets" class="diag-status-fail">UNKNOWN</td></tr>
+                        </table>
+                        <div id="diag-rec" class="diag-recommendation" style="display:none;"></div>
+                    </div>
                 </div>
                 <button id="select-window-btn" class="btn primary"><span>Select Window Source</span></button>
             </div>
@@ -161,8 +170,7 @@
                         <li><strong>AUTO Button:</strong> Enable hands-free continuous reading (next to RE-CAPTURE).
                         </li>
                         <li><strong>Debug Thumbnail (Dev only):</strong> Advanced diagnostic view showing the exact capture sent to OCR — useful for engineering troubleshooting.</li>
-                        <li><strong>Scaling & Engine:</strong> Adjust in the header for best results on small or complex
-                            fonts.</li>
+                        <li><strong>Auto-Copy:</strong> Toggle in the side menu to automatically copy any text you manually highlight in the output fields.</li>
                         <li><strong>TTS & History:</strong> Hear lines spoken aloud (🔊) or browse the sidebar for past
                             logs.</li>
                     </ul>
@@ -250,7 +258,7 @@
                     <ul>
                         <li><strong>Reset to Defaults:</strong> Located in the Side Menu (≡). Use this to restore all UI, engine, and processing settings to their factory state if the application behavior becomes unexpected.</li>
                         <li><strong>UI Customization:</strong> Use the <strong>Side Menu</strong> (≡) to adjust the <strong>Text Area Size</strong> and <strong>Text Size</strong>. This is critical for matching the output to your reading distance and device screen.</li>
-                        <li><strong>Clipboard:</strong> Select text in the output or history to auto-copy it. Toggle via <strong>Auto-Copy</strong> in the menu. Use 📋 to copy a full entry.</li>
+                        <li><strong>Clipboard:</strong> Select text in the output or history to auto-copy it when the <strong>Auto-Copy</strong> setting is enabled in the menu. Use 📋 to copy a full entry.</li>
                         <li><strong>History:</strong> The sidebar logs up to 100 lines, restored on next session. Use 📋
                             to copy any past line.</li>
                         <li><strong>Support:</strong> Found a bug or need a new engine? Use the <strong>Contact / Report Issue</strong> button in the menu to reach the developers directly.</li>

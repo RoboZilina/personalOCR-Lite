@@ -58,41 +58,41 @@ self.addEventListener('fetch', (event) => {
     // 1. Local assets: network-first (Lite optimization)
     if (url.origin === location.origin) {
 
-    // 2. CDN requests: network-only
-    if (url.origin !== location.origin) {
-        event.respondWith(fetch(event.request).then(withCOOP));
-        return;
-    }
+        // 2. CDN requests: network-only
+        if (url.origin !== location.origin) {
+            event.respondWith(fetch(event.request).then(withCOOP));
+            return;
+        }
 
-    // 3. ONNX Runtime files (small scripts/wasms) - Cache-First
-    if (url.pathname.includes('/js/onnx/')) {
+        // 3. ONNX Runtime files (small scripts/wasms) - Cache-First
+        if (url.pathname.includes('/js/onnx/')) {
+            event.respondWith(
+                caches.open(MODEL_CACHE_NAME).then(cache =>
+                    cache.match(event.request).then(cached => {
+                        if (cached) return withCOOP(cached);
+                        return fetch(event.request).then(response => {
+                            if (response.ok) cache.put(event.request, response.clone()).catch(() => { });
+                            return withCOOP(response);
+                        });
+                    })
+                )
+            );
+            return;
+        }
+
+        // 4. Local assets: stale-while-revalidate
         event.respondWith(
-            caches.open(MODEL_CACHE_NAME).then(cache =>
+            caches.open(CACHE_NAME).then(cache =>
                 cache.match(event.request).then(cached => {
-                    if (cached) return withCOOP(cached);
-                    return fetch(event.request).then(response => {
-                        if (response.ok) cache.put(event.request, response.clone()).catch(() => {});
+                    const fetched = fetch(event.request).then(response => {
+                        if (response.ok) {
+                            cache.put(event.request, response.clone()).catch(() => { });
+                        }
                         return withCOOP(response);
-                    });
+                    }).catch(() => cached);
+
+                    return withCOOP(cached) || fetched || new Response('Offline', { status: 503 });
                 })
             )
         );
-        return;
-    }
-
-    // 4. Local assets: stale-while-revalidate
-    event.respondWith(
-        caches.open(CACHE_NAME).then(cache =>
-            cache.match(event.request).then(cached => {
-                const fetched = fetch(event.request).then(response => {
-                    if (response.ok) {
-                        cache.put(event.request, response.clone()).catch(() => {});
-                    }
-                    return withCOOP(response);
-                }).catch(() => cached);
-                
-                return withCOOP(cached) || fetched || new Response('Offline', { status: 503 });
-            })
-        )
-    );
-});
+    });

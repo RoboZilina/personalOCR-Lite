@@ -8,11 +8,41 @@ export class TesseractEngine {
     }
 
     /**
+     * Non-blocking check for local asset existence (Hardening v2.1.9).
+     * Pings the WASM and Worker files to ensure the environment is correctly deployed.
+     */
+    async checkAssets() {
+        const assets = [
+            './js/tesseract/worker.min.js',
+            './js/tesseract/tesseract-core.wasm.js',
+            './models/jpn.traineddata'
+        ];
+        
+        try {
+            const results = await Promise.all(assets.map(url => fetch(url, { method: 'HEAD' })));
+            const allFound = results.every(res => res.ok);
+            
+            const diagAssets = document.getElementById('diag-assets');
+            if (diagAssets) {
+                diagAssets.textContent = allFound ? '✅ FOUND' : '❌ MISSING';
+                diagAssets.className = allFound ? 'diag-status-ok' : 'diag-status-fail';
+            }
+            return allFound;
+        } catch (err) {
+            console.warn("Asset integrity check failed (possible CORS or network issue):", err);
+            return false;
+        }
+    }
+
+    /**
      * Initializes the Tesseract worker and loads the 'jpn_best' model.
      * Configuration matches the existing app.js implementation for consistency.
      */
     async load() {
         if (this.isLoaded && this.worker) return;
+
+        // Non-blocking integrity ping
+        this.checkAssets();
 
         try {
             // Configuration for strictly local operation (Lite Version)

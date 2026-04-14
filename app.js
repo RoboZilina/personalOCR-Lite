@@ -93,43 +93,45 @@ if (window.EngineManager) {
 // Phase 2: Lazy-load state initialization
 modeSelector.disabled = (engineSelector.value !== 'tesseract');
 
-// Performance Mode UI Initialization (Patch v2.1.12)
+// Performance Mode UI Initialization (Premium Edition)
 if (perfIcon && perfInfo) {
     const isIsolated = self.crossOriginIsolated;
     const hasGPU = !!navigator.gpu;
     const hasThreads = typeof SharedArrayBuffer !== 'undefined';
     
-    // Build Diagnostic Table
-    let diagHtml = `
-        <div class="diag-header">System Diagnostics</div>
-        <table class="diag-table">
-            <tr><td>Isolation State</td><td class="${isIsolated ? 'diag-status-ok' : 'diag-status-fail'}">${isIsolated ? '✅ Active' : '❌ Restricted'}</td></tr>
-            <tr><td>WebGPU Support</td><td class="${hasGPU ? 'diag-status-ok' : 'diag-status-fail'}">${hasGPU ? '✅ Available' : '❌ Disabled'}</td></tr>
-            <tr><td>Multi-Threading</td><td class="${hasThreads ? 'diag-status-ok' : 'diag-status-fail'}">${hasThreads ? '✅ Active' : '❌ Fallback'}</td></tr>
-        </table>
-    `;
+    // Update Diagnostic Table Elements (from index.html)
+    const diagWebGPU = document.getElementById('diag-webgpu');
+    const diagIsolation = document.getElementById('diag-isolation');
+    const diagThreads = document.getElementById('diag-threads');
+    const diagRec = document.getElementById('diag-rec');
 
-    if (isIsolated) {
+    if (diagWebGPU) {
+        diagWebGPU.textContent = hasGPU ? '✅ ON' : '❌ OFF';
+        diagWebGPU.className = hasGPU ? 'diag-status-ok' : 'diag-status-fail';
+    }
+    if (diagIsolation) {
+        diagIsolation.textContent = isIsolated ? '✅ YES' : '❌ NO';
+        diagIsolation.className = isIsolated ? 'diag-status-ok' : 'diag-status-fail';
+    }
+    if (diagThreads) {
+        diagThreads.textContent = hasThreads ? '✅ YES' : '❌ NO';
+        diagThreads.className = hasThreads ? 'diag-status-ok' : 'diag-status-fail';
+    }
+
+    if (isIsolated && hasGPU) {
         perfIcon.textContent = "🔥";
         perfIcon.classList.remove('warning');
-        perfInfo.innerHTML = `
-            ${diagHtml}
-            <div style="margin-top: 8px; font-size: 11px; opacity: 0.8;">🚀 <b>High-Performance Mode Active:</b> Your browser is fully optimized for neural inference.</div>
-        `;
-        perfInfo.style.display = "none"; // Hidden by default in high-perf mode
+        if (diagRec) diagRec.style.display = 'none';
     } else {
         perfIcon.textContent = "⚠️";
         perfIcon.classList.add('warning');
-        perfInfo.innerHTML = `
-            ${diagHtml}
-            <div class="diag-recommendation">
-                🐢 <b>Compatibility Mode:</b> High-performance features are currently blocked by browser security sandboxing.
-            </div>
-            <div style="margin-top: 12px; padding: 10px; background: rgba(16, 185, 129, 0.1); border-radius: 6px; border: 1px solid rgba(16, 185, 129, 0.2); font-size: 11px; color: #34d399;">
-                💡 <b>TIP:</b> For local-only Lite deployments on GitHub Pages, a <b>manual page reload</b> is required to activate the Service Worker and unlock WebGPU.
-            </div>
-        `;
-        perfInfo.style.display = "block"; // Always visible in Compatibility Mode
+        perfInfo.style.display = "block"; // Auto-show if sub-optimal
+        if (diagRec) {
+            diagRec.style.display = 'block';
+            diagRec.innerHTML = !isIsolated 
+                ? "💡 <b>TIP:</b> Local isolation (COOP/COEP) is required for WebGPU. Please <b>Reload the page</b> to activate the Service Worker shim."
+                : "💡 <b>Hardware Note:</b> WebGPU was not detected. The engine will fall back to high-speed WASM threading.";
+        }
     }
 
     perfIcon.onclick = () => {
@@ -677,26 +679,32 @@ if (historyContent) {
             setTimeout(() => btn.innerHTML = '📋', 1000);
         }
     });
-    historyContent.addEventListener('mouseup', () => {
+    historyContent.addEventListener('mouseup', async () => {
         if (!getSetting('autoCopy')) return;
         const sel = window.getSelection().toString().trim();
         if (!sel) return;
-        navigator.clipboard.writeText(sel).then(() => {
-            historyContent.style.outline = '2px solid var(--accent)';
-            setTimeout(() => { historyContent.style.outline = ''; }, 300);
-        }).catch(() => { });
+        try {
+            await navigator.clipboard.writeText(sel);
+            historyContent.classList.add('copied-flash');
+            setTimeout(() => historyContent.classList.remove('copied-flash'), 200);
+        } catch (err) {
+            console.warn("[UX] Auto-Copy failed (clipboard restricted):", err);
+        }
     });
 }
 
 if (latestText) {
-    latestText.addEventListener('mouseup', () => {
+    latestText.addEventListener('mouseup', async () => {
         if (!getSetting('autoCopy')) return;
         const sel = window.getSelection().toString().trim();
         if (!sel) return;
-        navigator.clipboard.writeText(sel).then(() => {
-            latestText.style.outline = '2px solid var(--accent)';
-            setTimeout(() => { latestText.style.outline = ''; }, 300);
-        }).catch(() => { });
+        try {
+            await navigator.clipboard.writeText(sel);
+            latestText.classList.add('copied-flash');
+            setTimeout(() => latestText.classList.remove('copied-flash'), 200);
+        } catch (err) {
+            console.warn("[UX] Auto-Copy failed (clipboard restricted):", err);
+        }
     });
 }
 
@@ -777,14 +785,22 @@ if (selectionOverlay) {
         currentX = pos.x; currentY = pos.y;
 
         const w = selectionOverlay.width, h = selectionOverlay.height;
+        const selX = Math.min(startX, currentX);
+        const selY = Math.min(startY, currentY);
+        const selW = Math.abs(currentX - startX);
+        const selH = Math.abs(currentY - startY);
+
+        // Hardware Hardening Point 2: 8x8px Crop Clamp
+        const isValidCrop = selW >= 8 && selH >= 8;
+
         const finalRect = {
-            x: Math.min(startX, currentX) / w,
-            y: Math.min(startY, currentY) / h,
-            width: Math.abs(currentX - startX) / w,
-            height: Math.abs(currentY - startY) / h
+            x: selX / w,
+            y: selY / h,
+            width: selW / w,
+            height: selH / h
         };
         const hint = document.getElementById('selection-hint');
-        if (finalRect.width > 0.005) {
+        if (isValidCrop) {
             selectionRect = finalRect;
             
             // Throttled First Capture (Patch v2.1.9)
@@ -804,6 +820,7 @@ if (selectionOverlay) {
         } else {
             selectionRect = null;
             if (hint) hint.classList.add('visible');
+            setOCRStatus('ready', '⚪ Selection too small (min 8x8px)');
         }
         drawSelectionRect();
     });
@@ -1161,6 +1178,8 @@ async function captureFrame(rect) {
         // 5. Explicit Memory Cleanup (Step 9 Hardening)
         canvases.forEach(c => {
             if (c && c !== rawCropCanvas) {
+                const ctx = c.getContext('2d');
+                if (ctx) ctx.clearRect(0, 0, c.width, c.height);
                 c.width = 0;
                 c.height = 0;
             }
@@ -1172,6 +1191,8 @@ async function captureFrame(rect) {
     finally {
         // 6. Final Memory Hardening: Zero out the source crop
         if (rawCropCanvas) {
+            const ctx = rawCropCanvas.getContext('2d');
+            if (ctx) ctx.clearRect(0, 0, rawCropCanvas.width, rawCropCanvas.height);
             rawCropCanvas.width = 0;
             rawCropCanvas.height = 0;
         }
@@ -2028,8 +2049,8 @@ globalInitialize();
     };
 
     if (menuContact) menuContact.onclick = () => {
-        console.debug("[MENU] GitHub Link Disabled (Lite Build)");
-        alert("PersonalOCR Lite: External links are disabled in this isolated build.");
+        console.debug("[MENU] Opening GitHub Issues Page...");
+        window.open('https://github.com/RoboZilina/personalOCR/issues/new', '_blank');
         closeMenu();
     };
 

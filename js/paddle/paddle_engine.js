@@ -30,7 +30,37 @@ export class PaddleOCR {
         return await this.loadModels();
     }
 
+    /**
+     * Non-blocking check for local asset existence (Hardening v2.1.9).
+     */
+    async checkAssets() {
+        const assets = [
+            './models/det.onnx',
+            './models/rec.onnx',
+            './models/dict.txt',
+            './models/manifest.json'
+        ];
+        
+        try {
+            const results = await Promise.all(assets.map(url => fetch(url, { method: 'HEAD' })));
+            const allFound = results.every(res => res.ok);
+            
+            const diagAssets = document.getElementById('diag-assets');
+            if (diagAssets) {
+                diagAssets.textContent = allFound ? '✅ FOUND' : '❌ MISSING';
+                diagAssets.className = allFound ? 'diag-status-ok' : 'diag-status-fail';
+            }
+            return allFound;
+        } catch (err) {
+            console.warn("PaddleOCR: Asset check failed:", err);
+            return false;
+        }
+    }
+
     async loadModels() {
+        // Non-blocking integrity ping
+        this.checkAssets();
+
         try {
             this.reportStatus('loading', '🟡 PaddleOCR: loading manifest…');
             const res = await fetch(this.manifestUrl);
