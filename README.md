@@ -115,6 +115,18 @@ The following components were removed to ensure GitHub Pages compatibility:
 
 ---
 
+## 🌐 Next Steps: Cloudflare Migration
+
+We are currently transitioning **PersonalOCR** to a high-performance **Cloudflare-backed architecture**. This migration will enable:
+
+- **Global High-Speed Asset Delivery**: Near-instant model loading from Cloudflare's global edge network.
+- **Enhanced Privacy Controls**: Advanced security headers and request-level isolation.
+- **Persistent Versioning**: Easier access to specific engine variants and historical builds.
+
+*Note: Migration links and updated setup guides will be added once the transition is finalized.*
+
+---
+
 ## 📘 License
 MIT License.  
 All OCR models belong to their respective authors.

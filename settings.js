@@ -11,7 +11,6 @@ const defaultSettings = {
     autoCapture: true,
     autoCopy: true,
     showHeavyWarning: true,
-    showStatus: true,
     theme: "auto",                // "auto", "dark", "light"
     historyVisible: true,
     previewVisible: false,

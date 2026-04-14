@@ -67,13 +67,14 @@ const upscaleVal = document.getElementById('upscale-val');
 const perfIcon = document.getElementById('perf-icon');
 const perfInfo = document.getElementById('perf-info');
 
-// === Throttling & Readiness State (Patch v2.1.9) ===
+// === Throttling & Readiness State (Patch v3.0) ===
 let captureLocked = false;
 let engineReady = false; // Initialized as false, will sync in globalInitialize
+let isProcessing = false; // Moved to top-level for unified state tracking
 
 function updateCaptureButtonState() {
     if (!refreshOcrBtn) return;
-    const shouldBeDisabled = !engineReady || captureLocked;
+    const shouldBeDisabled = !engineReady || captureLocked || isProcessing;
     refreshOcrBtn.disabled = shouldBeDisabled;
     refreshOcrBtn.classList.toggle('disabled', shouldBeDisabled);
 }
@@ -424,12 +425,14 @@ async function switchEngineModular(id) {
     }
 
     // Non-blocking engine load trigger
-    EngineManager.switchEngine({
-        ...registryEntry,
-        id: normalizedId
-    }).catch(err => {
+    try {
+        await EngineManager.switchEngine({
+            ...registryEntry,
+            id: normalizedId
+        });
+    } catch (err) {
         console.error('Engine load error:', err);
-    });
+    }
 
     // 8) Restore UI state
     if (engineSelector) {
@@ -470,7 +473,7 @@ let currentUtterance = null;
 let videoStream = null;
 
 
-let isProcessing = false;
+// Lifecycle flags (MIRRORED FOR AUDITABILITY)
 let captureGeneration = 0;
 let selectionRect = null;
 let multiPassOverlayCollapsed = false;
@@ -827,7 +830,7 @@ if (selectionOverlay) {
         if (isValidCrop) {
             selectionRect = finalRect;
             
-            // Throttled First Capture (Patch v2.1.9)
+            // Throttled First Capture (Patch v3.0)
             if (!captureLocked && engineReady) {
                 captureLocked = true;
                 updateCaptureButtonState();
@@ -916,13 +919,19 @@ if (autoToggle) {
             if (label) label.textContent = "auto re-capture ON";
             if (autoCaptureTimer) clearInterval(autoCaptureTimer);
             (async () => {
-                await switchEngineModular(EngineManager.getInfo().id || engineSelector?.value || "tesseract");
+                // Hardening: Only trigger a potential reload if the engine isn't already active.
+                // This prevents redundant loads when toggling other side-menu settings.
+                if (!EngineManager.isReady()) {
+                    await switchEngineModular(EngineManager.getInfo().id || engineSelector?.value || "tesseract");
+                }
                 autoCaptureTimer = setInterval(checkAutoCapture, 500);
             })();
         } else {
             if (label) label.textContent = "auto re-capture OFF";
             clearInterval(autoCaptureTimer);
+            clearTimeout(stabilityTimer); // Final Hardening: Prevent phantom triggers
             autoToggle.parentElement.classList.remove('active');
+            autoCaptureBtn?.classList.remove('scanning');
         }
     };
 }
@@ -1233,7 +1242,8 @@ async function captureFrame(rect) {
             if (EngineManager.isReady()) {
                 setOCRStatus('ready', EngineManager.getReadyStatus());
             }
-        }, 100);
+            updateCaptureButtonState(); // Heartbeat Sync (Final Hardening)
+        }, 150);
     }
 }
 
@@ -1716,7 +1726,7 @@ if (refreshOcrBtn) {
     refreshOcrBtn.onclick = async () => {
         if (!selectionRect) return;
 
-        // Throttled Manual Capture (Patch v2.1.9)
+        // Throttled Manual Capture (Patch v3.0)
         if (captureLocked || !engineReady) {
             console.warn("[UI] Capture ignored — button is locked or engine not ready.");
             return;
@@ -1772,7 +1782,22 @@ function initHelpModal() {
 // 6.1 Initialization
 function initSettings() {
     loadSettings();
-    applySettingsToUI();
+    applySettingsToUI(); // Initial sync for Theme/Visuals
+    
+    if (upscaleSlider) {
+        upscaleSlider.oninput = () => {
+            const val = parseFloat(upscaleSlider.value);
+            setSetting('upscaleFactor', val);
+            if (upscaleVal) upscaleVal.textContent = val.toFixed(1);
+        };
+    }
+
+    const heavyWarningCheckbox = document.getElementById('heavy-warning-checkbox');
+    if (heavyWarningCheckbox) {
+        heavyWarningCheckbox.onchange = () => {
+            setSetting('showHeavyWarning', !heavyWarningCheckbox.checked);
+        };
+    }
 
     const engine = getSetting('ocrEngine') || 'tesseract';
     const paddleLines = getSetting('paddleLineCount') || 3;
@@ -1980,6 +2005,11 @@ async function globalInitialize() {
     engineReady = EngineManager.isReady();
     updateCaptureButtonState();
 
+    // Settings Hardening: Final UI Sync
+    // We fire this at the VERY end to ensure the DOM grid and sidebar are stable
+    // before applying layout classes like .history-hidden
+    applySettingsToUI();
+
 
 
     // Service Worker with update notification
@@ -2135,7 +2165,7 @@ globalInitialize();
 
 /** Public API Namespace (Auditability Phase) */
 window.VNOCR = {
-    version: '2.1.9',
+    version: '3.0nomangaOCR',
     isReady: EngineManager.isReady,
     drawSelectionRect: window.drawSelectionRect,
     captureFrame: window.captureFrame,
