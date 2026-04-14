@@ -69,7 +69,7 @@ const perfInfo = document.getElementById('perf-info');
 
 // === Throttling & Readiness State (Patch v2.1.9) ===
 let captureLocked = false;
-let engineReady = false;
+let engineReady = window.EngineManager ? EngineManager.isReady() : false;
 
 function updateCaptureButtonState() {
     if (!refreshOcrBtn) return;
@@ -88,6 +88,8 @@ if (window.EngineManager) {
         engineReady = false;
         updateCaptureButtonState();
     });
+    // Initial sync in case we missed the very first event
+    updateCaptureButtonState();
 }
 
 // Phase 2: Lazy-load state initialization
@@ -909,8 +911,10 @@ function checkAutoCapture() {
         if (diffPixels > 10) {
             clearTimeout(stabilityTimer);
             autoToggle.parentElement.classList.add('active');
+            autoCaptureBtn?.classList.add('scanning'); // Premium Visual Feedback
             stabilityTimer = setTimeout(() => {
                 autoToggle.parentElement.classList.remove('active');
+                autoCaptureBtn?.classList.remove('scanning');
                 captureFrame(selectionRect);
             }, 800);
         }
