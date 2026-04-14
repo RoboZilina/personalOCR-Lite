@@ -93,7 +93,12 @@ export class PaddleOCR {
                 (p) => this.reportStatus('loading', `🟡 PaddleOCR: Loading ${(p * 50).toFixed(0)}%`)
             );
             this.detSession = await ort.InferenceSession.create(detBuffer, { executionProviders });
-            console.log(`[ENGINE] PaddleOCR Detection Session — Active Backend: ${this.detSession.executionProvider || 'unknown'}`);
+            const detProvider = this.detSession.executionProvider || 'unknown';
+            console.log(`[ENGINE] PaddleOCR Detection Session — Active Backend: ${detProvider}`);
+            
+            // Truth-Sync: Report actual backend to UI
+            this.reportStatus('backend', { type: detProvider.toLowerCase().includes('webgpu') ? 'webgpu' : 'wasm' });
+
             detBuffer = null; // Memory Guard: Release buffer immediately after session creation
             await new Promise(resolve => setTimeout(resolve, 50)); // Memory Guard: Yield to allow GC breathing room
 

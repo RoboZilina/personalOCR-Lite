@@ -68,6 +68,7 @@ export class TesseractEngine {
                 tessedit_pageseg_mode: '6'
             });
 
+            this.reportStatus('backend', { type: 'wasm' });
             this.isLoaded = true;
         } catch (err) {
             console.error("TesseractEngine: Load Error:", err);

@@ -125,7 +125,7 @@ if (perfIcon && perfInfo) {
     } else {
         perfIcon.textContent = "⚠️";
         perfIcon.classList.add('warning');
-        perfInfo.style.display = "block"; // Auto-show if sub-optimal
+        perfInfo.style.display = "block";
         if (diagRec) {
             diagRec.style.display = 'block';
             diagRec.innerHTML = !isIsolated 
@@ -137,6 +137,38 @@ if (perfIcon && perfInfo) {
     perfIcon.onclick = () => {
         perfInfo.style.display = (perfInfo.style.display === "none") ? "block" : "none";
     };
+}
+
+/** 
+ * Synchronizes the performance icon with engine-level reality.
+ * @param {'webgpu'|'wasm'} type 
+ */
+function updatePerformanceIcon(type) {
+    if (!perfIcon || !perfInfo) return;
+    const isIsolated = self.crossOriginIsolated;
+    const hasGPU = !!navigator.gpu;
+    const diagWebGPU = document.getElementById('diag-webgpu');
+
+    // Truth-sync: Even if GPU is available, if the engine reports 'wasm', 
+    // it means a fallback occurred.
+    if (type === 'webgpu') {
+        perfIcon.textContent = "🔥";
+        perfIcon.title = "High-Performance Mode: WebGPU Active";
+        perfIcon.classList.remove('warning');
+        if (diagWebGPU) {
+            diagWebGPU.textContent = "ACTIVE (WebGPU)";
+            diagWebGPU.className = "diag-status-ok";
+        }
+    } else if (type === 'wasm') {
+        perfIcon.textContent = "⚡";
+        perfIcon.title = "Direct Mode: High-Speed WASM Active";
+        perfIcon.classList.remove('warning');
+        if (diagWebGPU) {
+            // Update table to reflect that although WebGPU might be supported, the engine is using WASM
+            diagWebGPU.textContent = hasGPU ? "OFF (Using WASM)" : "OFF (N/A)";
+            diagWebGPU.className = hasGPU ? "diag-status-warning" : "diag-status-fail";
+        }
+    }
 }
 
 // ==========================================
@@ -502,6 +534,12 @@ EngineManager.onStatusChange(({ state, text }) => {
 });
 
 function setOCRStatus(state, text) {
+    // Phase 2 Compliance: Handle engine backend reports for UI sync
+    if (state === 'backend' && text && typeof text === 'object') {
+        updatePerformanceIcon(text.type);
+        return;
+    }
+
     // Step 4: Forward status to EngineManager
     if (window.EngineManager && typeof EngineManager._notifyStatus === 'function') {
         EngineManager._notifyStatus(state, text);
@@ -509,9 +547,6 @@ function setOCRStatus(state, text) {
 
     const ocrStatus = document.getElementById('ocr-status');
     if (!ocrStatus) return;
-
-
-
 
     // PRIORITY LOGIC:
     // Only force the generic "READY" green status if the specific state requested is 'ready'.
@@ -790,8 +825,9 @@ if (selectionOverlay) {
         const selW = Math.abs(currentX - startX);
         const selH = Math.abs(currentY - startY);
 
-        // Hardware Hardening Point 2: 8x8px Crop Clamp
-        const isValidCrop = selW >= 8 && selH >= 8;
+        // Hardware Hardening Point 2: Precision Selection Guard
+        // Rule: Must be at least 3x3 OR have a meaningful total area (100px²)
+        const isValidCrop = (selW >= 3 && selH >= 3) || (selW * selH >= 100);
 
         const finalRect = {
             x: selX / w,
@@ -817,10 +853,14 @@ if (selectionOverlay) {
             }
 
             if (hint) hint.classList.remove('visible');
+            // Auto-clear lingering "Selection too small" warnings when a valid one is confirmed
+            if (ocrStatus.textContent.includes('Selection too small')) {
+                setOCRStatus('ready');
+            }
         } else {
             selectionRect = null;
             if (hint) hint.classList.add('visible');
-            setOCRStatus('ready', '⚪ Selection too small (min 8x8px)');
+            setOCRStatus('ready', '⚪ Selection too small (min 3x3 or 100px²)');
         }
         drawSelectionRect();
     });
