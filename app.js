@@ -69,27 +69,13 @@ const perfInfo = document.getElementById('perf-info');
 
 // === Throttling & Readiness State (Patch v2.1.9) ===
 let captureLocked = false;
-let engineReady = window.EngineManager ? EngineManager.isReady() : false;
+let engineReady = false; // Initialized as false, will sync in globalInitialize
 
 function updateCaptureButtonState() {
     if (!refreshOcrBtn) return;
     const shouldBeDisabled = !engineReady || captureLocked;
     refreshOcrBtn.disabled = shouldBeDisabled;
     refreshOcrBtn.classList.toggle('disabled', shouldBeDisabled);
-}
-
-// Hook into EngineManager Lifecycle
-if (window.EngineManager) {
-    EngineManager.onReady(() => {
-        engineReady = true;
-        updateCaptureButtonState();
-    });
-    EngineManager.onLoading(() => {
-        engineReady = false;
-        updateCaptureButtonState();
-    });
-    // Initial sync in case we missed the very first event
-    updateCaptureButtonState();
 }
 
 // Phase 2: Lazy-load state initialization
@@ -1977,6 +1963,22 @@ async function globalInitialize() {
 
     // 4. Final Status Affirmation
     setOCRStatus('ready', savedEngine);
+
+    // Hardening: Reality-Sync UI Observers
+    // We attach these AFTER the first engine load is triggered to ensure
+    // EngineManager is fully initialized and operational.
+    EngineManager.onReady(() => {
+        engineReady = true;
+        updateCaptureButtonState();
+    });
+    EngineManager.onLoading(() => {
+        engineReady = false;
+        updateCaptureButtonState();
+    });
+
+    // Final Sync: Check if the engine is already ready from a restored session
+    engineReady = EngineManager.isReady();
+    updateCaptureButtonState();
 
 
 
