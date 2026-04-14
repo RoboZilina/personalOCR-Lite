@@ -49,24 +49,8 @@ import { MangaOCREngine } from './js/manga/manga_engine.js';
 // ==========================================
 
 // DOM Elements
-const selectWindowBtn = document.getElementById('select-window-btn');
-const vnVideo = document.getElementById('vn-video');
-const selectionOverlay = document.getElementById('selection-overlay');
-const historyContent = document.getElementById('history-content');
-const ttsVoiceSelect = document.getElementById('tts-voice-select');
-const speakLatestBtn = document.getElementById('speak-latest-btn');
-const latestText = document.getElementById('latest-text');
-const ocrStatus = document.getElementById('ocr-status');
-const refreshOcrBtn = document.getElementById('refresh-ocr-btn');
-const clearHistoryBtn = document.getElementById('clear-history-btn');
-const engineSelector = document.getElementById('model-selector');
-const modeSelector = document.getElementById('mode-selector');
-const autoToggle = document.getElementById('auto-capture-toggle');
-const autoCaptureBtn = document.getElementById('auto-capture-btn');
-const upscaleSlider = document.getElementById('upscale-slider');
-const upscaleVal = document.getElementById('upscale-val');
-const perfIcon = document.getElementById('perf-icon');
-const perfInfo = document.getElementById('perf-info');
+// DOM Elements (Identified as Gold v3.1.1 Lifecycle Nodes)
+let selectWindowBtn, vnVideo, selectionOverlay, historyContent, ttsVoiceSelect, speakLatestBtn, latestText, ocrStatus, refreshOcrBtn, clearHistoryBtn, engineSelector, modeSelector, autoToggle, autoCaptureBtn, upscaleSlider, upscaleVal, perfIcon, perfInfo;
 
 // === Throttling & Readiness State (Patch v3.1 Gold) ===
 let captureLocked = false;
@@ -84,25 +68,7 @@ function updateCaptureButtonState() {
 // Hook into EngineManager Lifecycle
 // Bridge Phase: EngineManager observers relocated to globalInitialize footer for Gold v3.1 stability
 
-// Phase 2: Lazy-load state initialization
-modeSelector.disabled = (engineSelector.value !== 'tesseract');
-
-// Performance Mode UI Initialization (Patch v2.5)
-if (perfIcon && perfInfo) {
-    if (self.crossOriginIsolated) {
-        perfIcon.textContent = "🔥";
-        perfInfo.textContent = "🚀 High-performance mode: active. GPU acceleration and multi-threading are enabled for maximum processing speed.";
-        console.log("[APP] Running in isolated mode (fast mode).");
-    } else {
-        perfIcon.textContent = "⚠️";
-        perfInfo.textContent = "🐢 Compatibility mode: isolated environment features are unavailable. OCR performance is reduced.";
-        console.warn("[APP] Running in non-isolated mode (compatibility mode).");
-    }
-
-    perfIcon.onclick = () => {
-        perfInfo.style.display = (perfInfo.style.display === "none") ? "block" : "none";
-    };
-}
+// Navigation Phase: Observers moved to globalInitialize for deterministic hydration
 
 // ==========================================
 // NEW: Modular Engine Registry (Roadmap Phase)
@@ -1949,6 +1915,44 @@ document.getElementById('banner-close')?.addEventListener('click', () => {
 
 // 6.5 Global Initialization
 async function globalInitialize() {
+    // Phase 1: Materialize DOM Nodes (Race Condition Fix)
+    selectWindowBtn = document.getElementById('select-window-btn');
+    vnVideo = document.getElementById('vn-video');
+    selectionOverlay = document.getElementById('selection-overlay');
+    historyContent = document.getElementById('history-content');
+    ttsVoiceSelect = document.getElementById('tts-voice-select');
+    speakLatestBtn = document.getElementById('speak-latest-btn');
+    latestText = document.getElementById('latest-text');
+    ocrStatus = document.getElementById('ocr-status');
+    refreshOcrBtn = document.getElementById('refresh-ocr-btn');
+    clearHistoryBtn = document.getElementById('clear-history-btn');
+    engineSelector = document.getElementById('model-selector');
+    modeSelector = document.getElementById('mode-selector');
+    autoToggle = document.getElementById('auto-capture-toggle');
+    autoCaptureBtn = document.getElementById('auto-capture-btn');
+    upscaleSlider = document.getElementById('upscale-slider');
+    upscaleVal = document.getElementById('upscale-val');
+    perfIcon = document.getElementById('perf-icon');
+    perfInfo = document.getElementById('perf-info');
+
+    // Phase 2: Internal readiness logic
+    if (modeSelector && engineSelector) {
+        modeSelector.disabled = (engineSelector.value !== 'tesseract');
+    }
+
+    if (perfIcon && perfInfo) {
+        if (self.crossOriginIsolated) {
+            perfIcon.textContent = "🔥";
+            perfInfo.textContent = "🚀 High-performance mode: active. GPU acceleration and multi-threading are enabled for maximum processing speed.";
+        } else {
+            perfIcon.textContent = "⚠️";
+            perfInfo.textContent = "🐢 Compatibility mode: isolated environment features are unavailable. OCR performance is reduced.";
+        }
+        perfIcon.onclick = () => {
+            perfInfo.style.display = (perfInfo.style.display === "none") ? "block" : "none";
+        };
+    }
+
     initHelpModal();
     initSettings();
 

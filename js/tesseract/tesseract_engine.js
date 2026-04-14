@@ -49,15 +49,15 @@ export class TesseractEngine {
         this.checkAssets();
 
         try {
-            // Hybrid Paths: GitHub for heavy data, Local for worker logic
+            // Hybrid Paths: High-res GitHub data + Stable UNPKG logic
             const langPath = 'https://github.com/RoboZilina/personalOCR/releases/latest/download/';
             const useGzip = false;
             const actualLang = 'jpn';
 
             this.worker = await Tesseract.createWorker(actualLang, 1, {
                 langPath: langPath,
-                workerPath: './js/tesseract/worker.min.js',
-                corePath: './js/tesseract/tesseract-core.wasm.js',
+                workerPath: 'https://unpkg.com/tesseract.js@5.1.0/dist/worker.min.js',
+                corePath: 'https://unpkg.com/tesseract.js-core@5.1.0/tesseract-core.wasm.js',
                 gzip: useGzip,
                 logger: m => {
                     if (m.status === 'loading language traineddata') {
