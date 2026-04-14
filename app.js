@@ -370,7 +370,7 @@ async function switchEngineModular(id) {
     const normalizedId = id.replace(/_.+$/, "");
 
 
-    console.debug("[ENGINE-DEBUG] switchEngineModular() requested:", id, "normalized:", normalizedId);
+    if (getSetting('debug')) console.debug("[ENGINE-DEBUG] switchEngineModular() requested:", id, "normalized:", normalizedId);
 
     const mangaNote = document.getElementById('manga-note');
     if (mangaNote) {
@@ -488,12 +488,7 @@ loadVoices();
 // Gold v3.1: Moved upscaleSlider.oninput to initSettings for unified state management
 
 // Step 2: Wire EngineManager (passive listener)
-EngineManager.onStatusChange(({ state, text }) => {
-    const ocrStatus = document.getElementById('ocr-status');
-    if (!ocrStatus) return;
-    ocrStatus.className = `status-pill ${state}`;
-    if (text) ocrStatus.textContent = text;
-});
+// Gold v3.1.1: Relocated EngineManager.onStatusChange to globalInitialize footer to ensure deterministic hydration.
 
 function setOCRStatus(state, text) {
     // Step 4: Forward status to EngineManager
@@ -622,10 +617,11 @@ function applyPaddlePreprocessing(cropCanvas, lineCount) {
  */
 async function preprocessForEngine(engineId, rawCanvas, mode, lineCount) {
     if (!EngineManager.isReady()) {
-        console.debug("[ENGINE-DEBUG] preprocess skipping wait (event-driven logic)");
+        if (getSetting('debug')) {
+            console.debug("[ENGINE-DEBUG] preprocess skipping wait (event-driven logic)");
+            console.debug("[ENGINE-DEBUG] preprocessForEngine() delegating to EngineManager");
+        }
     }
-
-    console.debug("[ENGINE-DEBUG] preprocessForEngine() delegating to EngineManager");
     return await EngineManager.preprocess(rawCanvas, mode, lineCount);
 }
 
@@ -1135,7 +1131,7 @@ async function captureFrame(rect = null) {
 
         for (let i = 0; i < canvases.length; i++) {
             if (canvases.length > 1) {
-                console.debug(`[INFERENCE-DEBUG] processing slice ${i + 1}/${canvases.length}`);
+                if (getSetting('debug')) console.debug(`[INFERENCE-DEBUG] processing slice ${i + 1}/${canvases.length}`);
             }
 
             // Debug Thumbnail (Modularized via metadata)
@@ -1147,7 +1143,7 @@ async function captureFrame(rect = null) {
             const clean = canvases[i];
             if (!clean.width || !clean.height) continue;
 
-            console.debug("[INFERENCE-DEBUG] slice dimensions:", clean.width, "x", clean.height);
+            if (getSetting('debug')) console.debug("[INFERENCE-DEBUG] slice dimensions:", clean.width, "x", clean.height);
 
             try {
                 const result = await EngineManager.runOCR(clean);
@@ -1790,7 +1786,7 @@ function initSettings() {
     // The Fix: Explicitly handle corrupted/empty strings by falling back to 'tesseract'
     let uiEngine = engine;
     if (!uiEngine) {
-        console.debug("[INIT] ocrEngine setting is empty. Defaulting UI to tesseract.");
+        if (getSetting('debug')) console.debug("[INIT] ocrEngine setting is empty. Defaulting UI to tesseract.");
         uiEngine = 'tesseract';
     }
 
@@ -1964,10 +1960,10 @@ async function globalInitialize() {
 
     // The Fix: Explicitly check for falsy values (empty strings, null, undefined)
     if (!savedEngine) {
-        console.debug("[INIT] ocrEngine is empty. Falling back to default: tesseract");
+        if (getSetting('debug')) console.debug("[INIT] ocrEngine is empty. Falling back to default: tesseract");
         savedEngine = 'tesseract';
     } else {
-        console.debug("[INIT] Restoring engine:", savedEngine);
+        if (getSetting('debug')) console.debug("[INIT] Restoring engine:", savedEngine);
     }
 
     // 1. Initial UI update for selector
@@ -1993,21 +1989,18 @@ async function globalInitialize() {
 
     // The Fix: Explicitly check for falsy values (empty strings, null, undefined)
     if (!savedMode) {
-        console.debug("[INIT] No saved mode found or empty string. Falling back to registry default:", defaultMode);
+        if (getSetting('debug')) {
+            console.debug("[INIT] No saved mode found or empty string. Falling back to registry default:", defaultMode);
+        }
         savedMode = defaultMode;
     } else {
-        console.debug("[INIT] Restoring saved mode:", savedMode);
+        if (getSetting('debug')) console.debug("[INIT] Restoring saved mode:", savedMode);
     }
 
     if (modeSelector) {
         modeSelector.value = savedMode;
         modeSelector.disabled = !engineInfo.capabilities.supportsModes;
     }
-
-    // 4. Final Status Affirmation
-    setOCRStatus('ready', savedEngine);
-
-
 
     // 4. Final Status Affirmation
     setOCRStatus('ready', savedEngine);
@@ -2033,6 +2026,11 @@ async function globalInitialize() {
     // before applying layout classes like .history-hidden
     applySettingsToUI();
 
+    // Gold v3.1.1 Hardening: EngineManager Observers relocated to footer for absolute stability
+    EngineManager.onStatusChange(({ state, text }) => {
+        setOCRStatus(state, text);
+    });
+
     // Service Worker with update notification
     if ('serviceWorker' in navigator) {
         const disableViaParam = new URLSearchParams(location.search).has('no-sw');
@@ -2042,11 +2040,15 @@ async function globalInitialize() {
         } else {
             navigator.serviceWorker.register('service-worker.js').catch(e => console.warn('SW registration failed:', e));
             navigator.serviceWorker.addEventListener('controllerchange', () => {
-                const bar = document.createElement('div');
-                bar.style.cssText = 'position:fixed;top:0;left:0;right:0;padding:10px;background:var(--accent);color:#000;text-align:center;font-weight:700;z-index:99999;cursor:pointer;';
-                bar.textContent = 'Update available — click to refresh';
-                bar.onclick = () => location.reload();
-                document.body.appendChild(bar);
+                const banner = document.createElement('div');
+                banner.className = 'startup-banner active';
+                banner.style.zIndex = '99999';
+                banner.innerHTML = `
+                    <div class="banner-text">🚀 <strong>Update Available:</strong> A new version of Personal OCR is ready.</div>
+                    <div class="banner-actions">
+                        <button class="btn" onclick="location.reload()">Refresh Now</button>
+                    </div>`;
+                document.body.prepend(banner);
             });
         }
     }
@@ -2135,20 +2137,24 @@ document.addEventListener('DOMContentLoaded', globalInitialize);
         closeMenu();
     };
 
+    const openGuide = () => {
+        if (getSetting('debug')) console.debug("[MENU] Opening User Guide...");
+        const modal = document.getElementById('guide-modal');
+        if (modal) modal.classList.add('active');
+    };
+
+    const openContact = () => {
+        if (getSetting('debug')) console.debug("[MENU] Opening GitHub Issues Page...");
+        window.open('https://github.com/RoboZilina/personalOCR/issues/new', '_blank', 'noopener,noreferrer');
+    };
+
     if (menuGuide) menuGuide.onclick = () => {
-        console.debug("[MENU] Opening User Guide...");
-        if (typeof openUserGuide === "function") {
-            openUserGuide();
-        } else {
-            const hb = document.getElementById('help-btn');
-            if (hb) hb.click();
-        }
+        openGuide();
         closeMenu();
     };
 
     if (menuContact) menuContact.onclick = () => {
-        console.debug("[MENU] Opening GitHub Issues Page...");
-        window.open('https://github.com/RoboZilina/personalOCR/issues/new', '_blank', 'noopener,noreferrer');
+        openContact();
         closeMenu();
     };
 
