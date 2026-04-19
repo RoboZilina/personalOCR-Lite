@@ -29,19 +29,14 @@ export class TesseractEngine {
             }
             return allFound;
         } catch (err) {
-        } catch (err) {
             console.warn("Asset integrity check failed (possible CORS or network issue):", err);
-            return false;
-        }
             return false;
         }
     }
 
     /**
-    /**
      * Initializes the Tesseract worker and loads the 'jpn_best' model.
      * Configuration matches the existing app.js implementation for consistency.
-     */
      */
     async load() {
         if (this.isLoaded && this.worker) return;

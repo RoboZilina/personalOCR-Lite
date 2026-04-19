@@ -52,10 +52,7 @@ export class PaddleOCR {
             }
             return allFound;
         } catch (err) {
-        } catch (err) {
             console.warn("PaddleOCR: Asset check failed:", err);
-            return false;
-        }
             return false;
         }
     }

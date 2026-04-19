@@ -421,8 +421,6 @@ async function switchEngineModular(id) {
     }).catch(err => {
         console.error('Engine load error:', err);
     });
-        console.error('Engine load error:', err);
-    }
 
     // 8) Restore UI state
     if (engineSelector) {
@@ -1193,6 +1191,7 @@ async function captureFrame(rect = null) {
             setOCRStatus('ready', '🟢 OCR Complete');
             if (typeof updateLatestText === 'function') {
                 updateLatestText(finalText);
+            }
         } else {
             setOCRStatus('ready', '⚪ No text detected');
         }
@@ -1969,8 +1968,7 @@ async function globalInitialize() {
     initEventListeners_Part1();
     initEventListeners_Part2();
 
-    // Ensure panic button is removed from UI as fallback/panic logic is retired
-    document.getElementById('panic-btn')?.remove();
+
 
     // Startup Engine Load: Restore the primary engine choice exactly once
     let savedEngine = getSetting('ocrEngine');
