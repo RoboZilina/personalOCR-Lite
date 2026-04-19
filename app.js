@@ -42,7 +42,6 @@ import {
 
 import { TesseractEngine } from './js/tesseract/tesseract_engine.js';
 import { PaddleOCR } from './js/paddle/paddle_engine.js';
-import { MangaOCREngine } from './js/manga/manga_engine.js';
 
 /** Unified Readiness API (Hardening Phase) */
 
@@ -70,7 +69,88 @@ function updateCaptureButtonState() {
 // Hook into EngineManager Lifecycle
 // Bridge Phase: EngineManager observers relocated to globalInitialize footer for Gold v3.1 stability
 
-// Navigation Phase: Observers moved to globalInitialize for deterministic hydration
+// Phase 2: Lazy-load state initialization
+if (modeSelector && engineSelector) {
+    modeSelector.disabled = (engineSelector.value !== 'tesseract');
+}
+
+// Performance Mode UI Initialization (Premium Edition)
+if (perfIcon && perfInfo) {
+    const isIsolated = self.crossOriginIsolated;
+    const hasGPU = !!navigator.gpu;
+    const hasThreads = typeof SharedArrayBuffer !== 'undefined';
+    
+    // Update Diagnostic Table Elements (from index.html)
+    const diagWebGPU = document.getElementById('diag-webgpu');
+    const diagIsolation = document.getElementById('diag-isolation');
+    const diagThreads = document.getElementById('diag-threads');
+    const diagRec = document.getElementById('diag-rec');
+
+    if (diagWebGPU) {
+        diagWebGPU.textContent = hasGPU ? '✅ ON' : '❌ OFF';
+        diagWebGPU.className = hasGPU ? 'diag-status-ok' : 'diag-status-fail';
+    }
+    if (diagIsolation) {
+        diagIsolation.textContent = isIsolated ? '✅ YES' : '❌ NO';
+        diagIsolation.className = isIsolated ? 'diag-status-ok' : 'diag-status-fail';
+    }
+    if (diagThreads) {
+        diagThreads.textContent = hasThreads ? '✅ YES' : '❌ NO';
+        diagThreads.className = hasThreads ? 'diag-status-ok' : 'diag-status-fail';
+    }
+
+    if (isIsolated && hasGPU) {
+        perfIcon.textContent = "🔥";
+        perfIcon.classList.remove('warning');
+        if (diagRec) diagRec.style.display = 'none';
+    } else {
+        perfIcon.textContent = "⚠️";
+        perfIcon.classList.add('warning');
+        if (perfInfo) perfInfo.style.display = "block";
+        if (diagRec) {
+            diagRec.style.display = 'block';
+            diagRec.innerHTML = !isIsolated 
+                ? "💡 <b>TIP:</b> Local isolation (COOP/COEP) is required for WebGPU. Please <b>Reload the page</b> to activate the Service Worker shim."
+                : "💡 <b>Hardware Note:</b> WebGPU was not detected. The engine will fall back to high-speed WASM threading.";
+        }
+    }
+
+    perfIcon.onclick = () => {
+        perfInfo.style.display = (perfInfo.style.display === "none") ? "block" : "none";
+    };
+}
+
+/** 
+ * Synchronizes the performance icon with engine-level reality.
+ * @param {'webgpu'|'wasm'} type 
+ */
+function updatePerformanceIcon(type) {
+    if (!perfIcon || !perfInfo) return;
+    const isIsolated = self.crossOriginIsolated;
+    const hasGPU = !!navigator.gpu;
+    const diagWebGPU = document.getElementById('diag-webgpu');
+
+    // Truth-sync: Even if GPU is available, if the engine reports 'wasm', 
+    // it means a fallback occurred.
+    if (type === 'webgpu') {
+        perfIcon.textContent = "🔥";
+        perfIcon.title = "High-Performance Mode: WebGPU Active";
+        perfIcon.classList.remove('warning');
+        if (diagWebGPU) {
+            diagWebGPU.textContent = "ACTIVE (WebGPU)";
+            diagWebGPU.className = "diag-status-ok";
+        }
+    } else if (type === 'wasm') {
+        perfIcon.textContent = "⚡";
+        perfIcon.title = "Direct Mode: High-Speed WASM Active";
+        perfIcon.classList.remove('warning');
+        if (diagWebGPU) {
+            // Update table to reflect that although WebGPU might be supported, the engine is using WASM
+            diagWebGPU.textContent = hasGPU ? "OFF (Using WASM)" : "OFF (N/A)";
+            diagWebGPU.className = hasGPU ? "diag-status-warning" : "diag-status-fail";
+        }
+    }
+}
 
 // ==========================================
 // NEW: Modular Engine Registry (Roadmap Phase)
@@ -89,7 +169,7 @@ const engines = {
     },
     paddle: {
         factory: (deps) => new PaddleOCR(
-            './models/paddle/manifest.json',
+            './models/manifest.json',
             './js/onnx/',
             { reportStatus: deps.reportStatus }
         ),
@@ -110,24 +190,6 @@ const engines = {
         handleError: (error) => { console.error(error); return "[PaddleOCR Error]"; },
         isMultiLine: true,
         readyStatus: '🟢 PaddleOCR Ready'
-    },
-    manga: {
-        factory: (deps) => new MangaOCREngine(
-            './models/manga/manifest.json',
-            { reportStatus: deps.reportStatus }
-        ),
-        supportsModes: false,
-        defaultMode: null,
-        preprocess: async (canvas) => {
-            let cropCanvas = canvas;
-            cropCanvas = lr_addPadding(cropCanvas, 8);   // subtle padding
-            cropCanvas = sharpenCanvas(cropCanvas);      // existing fixed-strength sharpening
-            return [cropCanvas];
-        },
-        postprocess: (results) => results.join('').trim(),
-        handleError: (error) => { console.error(error); return "[MangaOCR Error]"; },
-        isMultiLine: false,
-        readyStatus: '🟢 MangaOCR Ready'
     }
 };
 
@@ -338,26 +400,9 @@ async function switchEngineModular(id) {
 
     if (getSetting('debug')) console.debug("[ENGINE-DEBUG] switchEngineModular() requested:", id, "normalized:", normalizedId);
 
-    const mangaNote = document.getElementById('manga-note');
-    if (mangaNote) {
-        mangaNote.classList.toggle('visible', normalizedId === 'manga');
-    }
-
-    const capturePreviewMenu = document.getElementById('menu-capture-preview');
-    if (capturePreviewMenu) {
-        capturePreviewMenu.style.display = normalizedId === 'manga' ? 'none' : 'block';
-    }
-
     // 2) Lock UI during transition
     if (engineSelector) engineSelector.disabled = true;
     if (modeSelector) modeSelector.disabled = true;
-
-    // 3) Toggle Manga Dashboard Layout
-    const mainNode = document.querySelector('.app-main');
-    if (mainNode) {
-        if (normalizedId === 'manga') mainNode.classList.add('manga-layout');
-        else mainNode.classList.remove('manga-layout');
-    }
 
     // 4) Delegate Lifecycle to EngineManager
     const registryEntry = engines[normalizedId];
@@ -376,6 +421,8 @@ async function switchEngineModular(id) {
     }).catch(err => {
         console.error('Engine load error:', err);
     });
+        console.error('Engine load error:', err);
+    }
 
     // 8) Restore UI state
     if (engineSelector) {
@@ -417,6 +464,7 @@ let videoStream = null;
 
 
 // Redundant declaration removed to resolve SyntaxError in Gold v3.1.1
+// Lifecycle flags (MIRRORED FOR AUDITABILITY)
 let captureGeneration = 0;
 let selectionRect = null;
 let multiPassOverlayCollapsed = false;
@@ -457,6 +505,12 @@ loadVoices();
 // Gold v3.1.1: Relocated EngineManager.onStatusChange to globalInitialize footer to ensure deterministic hydration.
 
 function setOCRStatus(state, text) {
+    // Phase 2 Compliance: Handle engine backend reports for UI sync
+    if (state === 'backend' && text && typeof text === 'object') {
+        updatePerformanceIcon(text.type);
+        return;
+    }
+
     // Step 4: Forward status to EngineManager
     if (window.EngineManager && typeof EngineManager._notifyStatus === 'function') {
         EngineManager._notifyStatus(state, text);
@@ -464,9 +518,6 @@ function setOCRStatus(state, text) {
 
     const ocrStatus = document.getElementById('ocr-status');
     if (!ocrStatus) return;
-
-
-
 
     // PRIORITY LOGIC:
     // Only force the generic "READY" green status if the specific state requested is 'ready'.
@@ -635,14 +686,17 @@ if (historyContent) {
             setTimeout(() => btn.innerHTML = '📋', 1000);
         }
     });
-    historyContent.addEventListener('mouseup', () => {
+    historyContent.addEventListener('mouseup', async () => {
         if (!getSetting('autoCopy')) return;
         const sel = window.getSelection().toString().trim();
         if (!sel) return;
-        navigator.clipboard.writeText(sel).then(() => {
-            historyContent.style.outline = '2px solid var(--accent)';
-            setTimeout(() => { historyContent.style.outline = ''; }, 300);
-        }).catch(() => { });
+        try {
+            await navigator.clipboard.writeText(sel);
+            historyContent.classList.add('copied-flash');
+            setTimeout(() => historyContent.classList.remove('copied-flash'), 200);
+        } catch (err) {
+            console.warn("[UX] Auto-Copy failed (clipboard restricted):", err);
+        }
     });
 }
 
@@ -723,29 +777,11 @@ if (selectionOverlay) {
         if (hint) hint.classList.remove('visible');
     };
 
-    const applyMangaConstraint = () => {
-        const engineSelect = document.getElementById('model-selector');
-        if (engineSelect && engineSelect.value === 'manga') {
-            const w = Math.abs(currentX - startX);
-            const h = Math.abs(currentY - startY);
-            if (h === 0) return; // avoid div by zero on first pixel
-
-            if (w > h * 1.2) {
-                const allowedW = h * 1.2;
-                currentX = currentX > startX ? startX + allowedW : startX - allowedW;
-            } else if (h > w * 1.2) {
-                const allowedH = w * 1.2;
-                currentY = currentY > startY ? startY + allowedH : startY - allowedH;
-            }
-        }
-    };
-
     window.addEventListener('mousemove', e => {
         if (isSelecting) {
             const pos = getMousePos(e);
             currentX = pos.x;
             currentY = pos.y;
-            applyMangaConstraint();
             drawSelectionRect();
         }
     });
@@ -754,7 +790,6 @@ if (selectionOverlay) {
         if (!isSelecting) return;
         isSelecting = false; const pos = getMousePos(e);
         currentX = pos.x; currentY = pos.y;
-        applyMangaConstraint();
 
         const w = selectionOverlay.width, h = selectionOverlay.height;
         const selX = Math.min(startX, currentX);
@@ -762,8 +797,9 @@ if (selectionOverlay) {
         const selW = Math.abs(currentX - startX);
         const selH = Math.abs(currentY - startY);
 
-        // Hardware Hardening Point 2: 8x8px Crop Clamp
-        const isValidCrop = selW >= 8 && selH >= 8;
+        // Hardware Hardening Point 2: Precision Selection Guard
+        // Rule: Must be at least 3x3 OR have a meaningful total area (100px²)
+        const isValidCrop = (selW >= 3 && selH >= 3) || (selW * selH >= 100);
 
         const finalRect = {
             x: selX / w,
@@ -775,7 +811,7 @@ if (selectionOverlay) {
         if (isValidCrop) {
             selectionRect = finalRect;
             
-            // Throttled First Capture (Patch v2.5)
+            // Throttled First Capture (Patch v3.1 Gold)
             if (!captureLocked && engineReady) {
                 captureLocked = true;
                 updateCaptureButtonState();
@@ -789,10 +825,14 @@ if (selectionOverlay) {
             }
 
             if (hint) hint.classList.remove('visible');
+            // Auto-clear lingering "Selection too small" warnings when a valid one is confirmed
+            if (ocrStatus.textContent.includes('Selection too small')) {
+                setOCRStatus('ready');
+            }
         } else {
             selectionRect = null;
             if (hint) hint.classList.add('visible');
-            setOCRStatus('ready', '⚪ Selection too small (min 8x8px)');
+            setOCRStatus('ready', '⚪ Selection too small (min 3x3 or 100px²)');
         }
         drawSelectionRect();
     });
@@ -841,8 +881,10 @@ function checkAutoCapture() {
         if (diffPixels > 10) {
             clearTimeout(stabilityTimer);
             autoToggle.parentElement.classList.add('active');
+            autoCaptureBtn?.classList.add('scanning'); // Premium Visual Feedback
             stabilityTimer = setTimeout(() => {
                 autoToggle.parentElement.classList.remove('active');
+                autoCaptureBtn?.classList.remove('scanning');
                 captureFrame(selectionRect);
             }, 800);
         }
@@ -860,6 +902,8 @@ if (autoToggle) {
             
             // Gold v3.1 Guard: Prevent recursive reloads during side-menu interactions
             (async () => {
+                // Hardening: Only trigger a potential reload if the engine isn't already active.
+                // This prevents redundant loads when toggling other side-menu settings.
                 if (!EngineManager.isReady()) {
                     await switchEngineModular(EngineManager.getInfo().id || engineSelector?.value || "tesseract");
                 }
@@ -870,6 +914,7 @@ if (autoToggle) {
             clearInterval(autoCaptureTimer);
             if (stabilityTimer) clearTimeout(stabilityTimer); // Gold v3.1 Phantom Cleanup
             autoToggle.parentElement.classList.remove('active');
+            autoCaptureBtn?.classList.remove('scanning');
         }
     };
 }
@@ -1181,8 +1226,8 @@ async function captureFrame(rect = null) {
             if (EngineManager.isReady()) {
                 setOCRStatus('ready', EngineManager.getReadyStatus());
             }
-            updateCaptureButtonState(); // UI Heartbeat Sync (Gold v3.1)
-        }, 100);
+            updateCaptureButtonState(); // Heartbeat Sync (Final Hardening)
+        }, 150);
     }
 }
 
@@ -1542,7 +1587,7 @@ function showMultiPassOverlay(results, finalText) {
     body.style.pointerEvents = 'auto';
 
     const active = getSetting('ocrEngine') || 'tesseract';
-    const label = active === 'paddle' ? 'PaddleOCR' : (active === 'manga' ? 'MangaOCR' : 'Tesseract');
+    const label = active === 'paddle' ? 'PaddleOCR' : 'Tesseract';
 
     let html = `<div style="font-size:10px; opacity:0.8; margin-bottom:6px; border-bottom:1px solid rgba(255,255,255,0.2); padding-bottom:4px;">Analyzing: ${label}</div>`;
 
@@ -1665,7 +1710,7 @@ if (refreshOcrBtn) {
     refreshOcrBtn.onclick = async () => {
         if (!selectionRect) return;
 
-        // Throttled Manual Capture (Patch v2.5)
+        // Throttled Manual Capture (Patch v3.1 Gold)
         if (captureLocked || !engineReady) {
             console.warn("[UI] Capture ignored — button is locked or engine not ready.");
             return;
@@ -1722,7 +1767,6 @@ function initHelpModal() {
 function initSettings() {
     loadSettings();
     applySettingsToUI(); // Initial sync for Theme/Visuals
-
     // Gold v3.1 Hardened Persistence: Real-time wiring for sliders and checkboxes
     if (upscaleSlider) {
         upscaleSlider.oninput = () => {
@@ -1732,10 +1776,16 @@ function initSettings() {
         };
     }
 
-    const heavyWarningCheckbox = document.getElementById('banner-nocall-checkbox');
+    const heavyWarningCheckbox = document.getElementById('heavy-warning-checkbox');
     if (heavyWarningCheckbox) {
         heavyWarningCheckbox.onchange = () => {
             setSetting('showHeavyWarning', !heavyWarningCheckbox.checked);
+        };
+    }
+    const bannerNoCallCheckbox = document.getElementById('banner-nocall-checkbox');
+    if (bannerNoCallCheckbox) {
+        bannerNoCallCheckbox.onchange = () => {
+            setSetting('showHeavyWarning', !bannerNoCallCheckbox.checked);
         };
     }
 
@@ -1758,8 +1808,6 @@ function initSettings() {
 
     if (uiEngine === 'tesseract') {
         engineSelector.value = 'tesseract';
-    } else if (uiEngine === 'manga') {
-        engineSelector.value = 'manga';
     } else {
         // Assume paddle variant or fallback
         engineSelector.value = uiEngine.startsWith('paddle_') ? uiEngine : `paddle_${paddleLines}`;
@@ -1806,19 +1854,6 @@ function initEventListeners_Part1() {
             return;
         }
 
-        // 3.5 Intercept MangaOCR if warnings are enabled
-        if (baseMode === 'manga' && getSetting('showMangaWarning') !== false) {
-            const currentEngine = getSetting('ocrEngine');
-            const currentLines = getSetting('paddleLineCount');
-            engineSelector.value = (currentEngine === 'tesseract')
-                ? 'tesseract'
-                : (currentEngine === 'paddle' ? `paddle_${currentLines}` : currentEngine);
-
-            document.getElementById('manga-modal').classList.add('active');
-            if (selectionRect) window.drawSelectionRect();
-            return;
-        }
-
         // 4. Persist engine mode
         setSetting('ocrEngine', baseMode);
 
@@ -1857,31 +1892,6 @@ function initEventListeners_Part2() {
         engineSelector.value = (currentEngine === 'tesseract') ? 'tesseract' : (currentEngine === 'paddle' ? `paddle_${currentLines}` : currentEngine);
 
         document.getElementById('paddle-modal').classList.remove('active');
-        if (selectionRect) window.drawSelectionRect();
-    });
-
-    // 6.3.5 Manga Modal Event Listeners
-    document.getElementById('manga-continue')?.addEventListener('click', async () => {
-        const checkbox = document.getElementById('manga-warning-checkbox');
-        if (checkbox?.checked) {
-            setSetting('showMangaWarning', false);
-        }
-
-        engineSelector.value = 'manga';
-        setSetting('ocrEngine', 'manga');
-
-        await switchEngineModular('manga');
-
-        document.getElementById('manga-modal').classList.remove('active');
-        if (selectionRect) window.drawSelectionRect();
-    });
-
-    document.getElementById('manga-cancel')?.addEventListener('click', () => {
-        const currentEngine = getSetting('ocrEngine');
-        const currentLines = getSetting('paddleLineCount');
-        engineSelector.value = (currentEngine === 'tesseract') ? 'tesseract' : (currentEngine === 'paddle' ? `paddle_${currentLines}` : currentEngine);
-
-        document.getElementById('manga-modal').classList.remove('active');
         if (selectionRect) window.drawSelectionRect();
     });
 
@@ -1976,7 +1986,7 @@ async function globalInitialize() {
     // 1. Initial UI update for selector
     if (engineSelector) {
         // Map variant IDs to UI values safely
-        if (savedEngine === 'tesseract' || savedEngine === 'manga') {
+        if (savedEngine === 'tesseract') {
             engineSelector.value = savedEngine;
         } else if (savedEngine === 'paddle') {
             const lines = getSetting('paddleLineCount') || 3;
@@ -2023,6 +2033,14 @@ async function globalInitialize() {
         engineReady = false;
         updateCaptureButtonState();
     });
+    // Final Sync: Check if the engine is already ready from a restored session
+    engineReady = EngineManager.isReady();
+    updateCaptureButtonState();
+
+    // Settings Hardening: Final UI Sync
+    // We fire this at the VERY end to ensure the DOM grid and sidebar are stable
+    // before applying layout classes like .history-hidden
+    applySettingsToUI();
 
     // Final Sync: Check if the engine is already ready from a restored session
     engineReady = EngineManager.isReady();
@@ -2199,7 +2217,7 @@ document.addEventListener('DOMContentLoaded', globalInitialize);
 
 /** Public API Namespace (Auditability Phase) */
 window.VNOCR = {
-    version: '3.1.1-GOLD-CF',
+    version: '3.1.1-NOMANGA',
     isReady: EngineManager.isReady,
     drawSelectionRect: window.drawSelectionRect,
     captureFrame: window.captureFrame,

@@ -31,26 +31,18 @@ export class PaddleOCR {
     }
 
     /**
-     * Hybrid Integrity Check (Hardening v2.1.10).
-     * Pings local config/dict and remote models for Cloudflare compatibility.
+     * Non-blocking check for local asset existence (Hardening v2.1.9).
      */
     async checkAssets() {
-        const modelBase = "./models/paddle/";
+        const assets = [
+            './models/det.onnx',
+            './models/rec.onnx',
+            './models/dict.txt',
+            './models/manifest.json'
+        ];
         
-        // Load manifest locally first to get remote URLs
         try {
-            const res = await fetch(modelBase + 'manifest.json', { method: 'HEAD' });
-            const manifestExists = res.ok;
-
-            // Define critical assets based on Cloudflare 25MB splitting
-            const assets = [
-                { url: modelBase + 'manifest.json', type: 'local' },
-                { url: modelBase + 'japan_dict.txt', type: 'local' },
-                { url: 'https://github.com/RoboZilina/personalOCR/releases/latest/download/det.onnx', type: 'remote' },
-                { url: 'https://github.com/RoboZilina/personalOCR/releases/latest/download/rec.onnx', type: 'remote' }
-            ];
-            
-            const results = await Promise.all(assets.map(a => fetch(a.url, { method: 'HEAD' })));
+            const results = await Promise.all(assets.map(url => fetch(url, { method: 'HEAD' })));
             const allFound = results.every(res => res.ok);
             
             const diagAssets = document.getElementById('diag-assets');
@@ -60,7 +52,10 @@ export class PaddleOCR {
             }
             return allFound;
         } catch (err) {
-            console.warn("PaddleOCR: Hybrid check failed:", err);
+        } catch (err) {
+            console.warn("PaddleOCR: Asset check failed:", err);
+            return false;
+        }
             return false;
         }
     }
@@ -74,8 +69,8 @@ export class PaddleOCR {
             const res = await fetch(this.manifestUrl);
             this.manifest = await res.json();
 
-            // Standardize model base path
-            const modelBase = "./models/paddle/";
+            // Enforce strictly local model base path (Lite Version: Flat ./models/ directory)
+            const modelBase = "./models/";
 
             if (this.manifest.normalize) {
                 this.normalize = this.manifest.normalize;
@@ -94,19 +89,26 @@ export class PaddleOCR {
 
             // Load detection model (Hybrid: Remote Priority)
             this.reportStatus('loading', '🟡 PaddleOCR: loading detection model…');
-            const detPath = this.manifest.det.remote_url || (modelBase + this.manifest.det.path);
+            // Load detection model strictly from local models folder
+            const detPath = modelBase + this.manifest.det.path;
             let detBuffer = await fetchWithProgress(
                 detPath,
                 (p) => this.reportStatus('loading', `🟡 PaddleOCR: Loading ${(p * 50).toFixed(0)}%`)
             );
             this.detSession = await ort.InferenceSession.create(detBuffer, { executionProviders });
-            console.log(`[ENGINE] PaddleOCR Detection Session — Active Backend: ${this.detSession.executionProvider || 'unknown'}`);
+            const detProvider = this.detSession.executionProvider || 'unknown';
+            console.log(`[ENGINE] PaddleOCR Detection Session — Active Backend: ${detProvider}`);
+            
+            // Truth-Sync: Report actual backend to UI
+            this.reportStatus('backend', { type: detProvider.toLowerCase().includes('webgpu') ? 'webgpu' : 'wasm' });
+
             detBuffer = null; // Memory Guard: Release buffer immediately after session creation
             await new Promise(resolve => setTimeout(resolve, 50)); // Memory Guard: Yield to allow GC breathing room
 
             // Load recognition model
             this.reportStatus('loading', '🟡 PaddleOCR: loading recognition model…');
-            const recPath = this.manifest.rec.remote_url || (modelBase + this.manifest.rec.path);
+            // Load recognition model strictly from local models folder
+            const recPath = modelBase + this.manifest.rec.path;
             let recBuffer = await fetchWithProgress(
                 recPath,
                 (p) => this.reportStatus('loading', `🟡 PaddleOCR: Loading ${(50 + p * 50).toFixed(0)}%`)
@@ -117,7 +119,7 @@ export class PaddleOCR {
 
             // Load dictionary
             this.reportStatus('loading', '🟡 PaddleOCR: loading dictionary…');
-            const dictRes = await fetch(modelBase + this.manifest.dict.path);
+            const dictRes = await fetch(modelBase + "dict.txt");
             const dictText = await dictRes.text();
             this.dict = dictText.split(/\r?\n/);
             if (this.dict.length > 0 && this.dict[this.dict.length - 1] === "") {

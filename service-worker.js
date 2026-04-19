@@ -1,7 +1,7 @@
 // === VERSION — Update CACHE_NAME on every release ===
 // This is the ONLY version string in the project.
 // Serve this file with Cache-Control: no-cache in production.
-const CACHE_NAME = 'vn-ocr-cache-v3.1.1-GOLD-CF';
+const CACHE_NAME = 'vn-ocr-cache-v3.1.1-NOMANGA';
 const ASSETS = [
     './',
     './index.html',
@@ -39,24 +39,37 @@ self.addEventListener('activate', (event) => {
     );
 });
 
+// === 5. Header Injection for WebGPU (GitHub Pages Compatibility) ===
+function withCOOP(response) {
+    if (!response || response.status === 0) return response;
+    const newHeaders = new Headers(response.headers);
+    newHeaders.set("Cross-Origin-Opener-Policy", "same-origin");
+    newHeaders.set("Cross-Origin-Embedder-Policy", "require-corp");
+    return new Response(response.body, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: newHeaders,
+    });
+}
+
 self.addEventListener('fetch', (event) => {
     const url = new URL(event.request.url);
 
-    // 1. CDN / GitHub Releases: network-only
+    // 1. External/CDN requests: network-only
     if (url.origin !== location.origin) {
-        event.respondWith(fetch(event.request));
+        event.respondWith(fetch(event.request).then(withCOOP));
         return;
     }
 
-    // 3. ONNX Runtime files (small scripts/wasms) - Cache-First
+    // 2. ONNX Runtime files (small scripts/wasms) - Cache-First
     if (url.pathname.includes('/js/onnx/')) {
         event.respondWith(
             caches.open(MODEL_CACHE_NAME).then(cache =>
                 cache.match(event.request).then(cached => {
-                    if (cached) return cached;
+                    if (cached) return withCOOP(cached);
                     return fetch(event.request).then(response => {
-                        if (response.ok) cache.put(event.request, response.clone()).catch(() => {});
-                        return response;
+                        if (response.ok) cache.put(event.request, response.clone()).catch(() => { });
+                        return withCOOP(response);
                     });
                 })
             )
@@ -64,24 +77,26 @@ self.addEventListener('fetch', (event) => {
         return;
     }
 
-    // 4. Local assets: stale-while-revalidate (excludes massive models)
+    // 3. Model assets (massive files) - Network-Only to avoid storage bloat on some browsers
     if (url.pathname.endsWith('.onnx') || url.pathname.endsWith('.traineddata')) {
-        event.respondWith(fetch(event.request));
+        event.respondWith(fetch(event.request).then(withCOOP));
         return;
     }
 
+    // 4. Local assets: stale-while-revalidate
     event.respondWith(
         caches.open(CACHE_NAME).then(cache =>
             cache.match(event.request).then(cached => {
                 const fetched = fetch(event.request).then(response => {
                     if (response.ok) {
-                        cache.put(event.request, response.clone()).catch(() => {});
+                        cache.put(event.request, response.clone()).catch(() => { });
                     }
-                    return response;
+                    return withCOOP(response);
                 }).catch(() => cached);
-                
-                return cached || fetched || new Response('Offline', { status: 503 });
+
+                return (cached ? withCOOP(cached) : null) || fetched || new Response('Offline', { status: 503 });
             })
         )
     );
+});
 });

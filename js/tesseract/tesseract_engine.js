@@ -8,25 +8,19 @@ export class TesseractEngine {
     }
 
     /**
-     * Hybrid Integrity Check (Hardening v2.1.10).
-     * Pings local workers and remote data to ensure Cloudflare-compatible deployment.
+     * Non-blocking check for local asset existence (Hardening v2.1.9).
+     * Pings the WASM and Worker files to ensure the environment is correctly deployed.
      */
     async checkAssets() {
-        const localAssets = [
+        const assets = [
             './js/tesseract/worker.min.js',
-            './js/tesseract/tesseract-core.wasm.js'
-        ];
-        const remoteAssets = [
-            'https://github.com/RoboZilina/personalOCR/releases/latest/download/jpn.traineddata'
+            './js/tesseract/tesseract-core.wasm.js',
+            './models/jpn.traineddata'
         ];
         
         try {
-            const [localResults, remoteResults] = await Promise.all([
-                Promise.all(localAssets.map(url => fetch(url, { method: 'HEAD' }))),
-                Promise.all(remoteAssets.map(url => fetch(url, { method: 'HEAD' })))
-            ]);
-            
-            const allFound = [...localResults, ...remoteResults].every(res => res.ok);
+            const results = await Promise.all(assets.map(url => fetch(url, { method: 'HEAD' })));
+            const allFound = results.every(res => res.ok);
             
             const diagAssets = document.getElementById('diag-assets');
             if (diagAssets) {
@@ -35,29 +29,36 @@ export class TesseractEngine {
             }
             return allFound;
         } catch (err) {
-            console.warn("Tesseract: Hybrid asset check failed:", err);
+        } catch (err) {
+            console.warn("Asset integrity check failed (possible CORS or network issue):", err);
+            return false;
+        }
             return false;
         }
     }
 
     /**
-     * Initializes the Tesseract worker via Hybrid Loader.
+    /**
+     * Initializes the Tesseract worker and loads the 'jpn_best' model.
+     * Configuration matches the existing app.js implementation for consistency.
+     */
      */
     async load() {
         if (this.isLoaded && this.worker) return;
 
+        // Non-blocking integrity ping
         this.checkAssets();
 
         try {
-            // Hybrid Paths: High-res GitHub data + Stable UNPKG logic
-            const langPath = 'https://github.com/RoboZilina/personalOCR/releases/latest/download/';
+            // Configuration for strictly local operation (Lite Version)
+            const langPath = './models/';
             const useGzip = false;
             const actualLang = 'jpn';
 
             this.worker = await Tesseract.createWorker(actualLang, 1, {
                 langPath: langPath,
-                workerPath: 'https://unpkg.com/tesseract.js@5.1.0/dist/worker.min.js',
-                corePath: 'https://unpkg.com/tesseract.js-core@5.1.0/tesseract-core.wasm.js',
+                workerPath: './js/tesseract/worker.min.js',
+                corePath: './js/tesseract/tesseract-core.wasm.js',
                 gzip: useGzip,
                 logger: m => {
                     if (m.status === 'loading language traineddata') {
@@ -72,6 +73,7 @@ export class TesseractEngine {
                 tessedit_pageseg_mode: '6'
             });
 
+            this.reportStatus('backend', { type: 'wasm' });
             this.isLoaded = true;
         } catch (err) {
             console.error("TesseractEngine: Load Error:", err);

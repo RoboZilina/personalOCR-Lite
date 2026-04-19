@@ -1,40 +1,67 @@
-# VN-OCR — Gold Baseline (v3.1-production)
+# PersonalOCR Lite — Gold v3.1 Edition
 
-A high-performance, browser-only Japanese OCR suite for Japanese Media. This branch is optimized for **Cloudflare Pages** deployment, combining the latest architectural hardening with edge-accelerated hardware access.
+**PersonalOCR Lite** is a high-performance, browser-only Japanese OCR suite optimized for **GitHub Pages** and static hosting environments. This version unites the surgical hardening of the **Gold v3.1** baseline with a streamlined, MangaOCR‑free architecture to ensure 100% compatibility with hosting size limitations.
 
-## v3.1: The "Gold" Hardening Milestone
-This version represents the definitive production standard for the project. It backports critical reliability improvements from the core development baseline to the high-performance Cloudflare environment, ensuring 100% deterministic operation.
+---
 
-## Key Features & Hardening
-- **Native WebGPU Acceleration** — GPU-accelerated inference for PaddleOCR and MangaOCR, enabled via native `_headers` configuration.
+## 🚀 Key Features & Gold Hardening
+- **Native WebGPU Acceleration** — GPU-accelerated inference for PaddleOCR, enabled via locally hosted models.
 - **Deterministic Engine Switching** — Hardened lifecycle management that guarantees the engine and UI remain perfectly synchronized even during rapid toggling.
-- **100% Settings Persistence** — Every UI control, including Tesseract upscaling and PaddleOCR warning states, is now fully persistent across sessions.
+- **100% Settings Persistence** — Every UI control, including Tesseract upscaling factors and history visibility, is now fully persistent across sessions.
 - **High-Speed Clipping (Auto-Copy)** — A premium extraction utility that automatically copies manually selected text from transcription fields to the clipboard with visual feedback.
 - **Reality-Sync Recovery** — Advanced DOM hydration logic that eliminates "temporal vacuum" race conditions during initial page load.
 - **Zero-Allocation Memory Architecture** — Every inference loop uses pre-allocated, hardware-aligned memory pools, preventing Garbage Collection spikes.
-- **Service Worker Efficiency** — Optimized caching strategy specifically designed for Cloudflare, excluding massive binary models to prevent storage bloat.
+- **Service Worker Performance (COOP/COEP)** — Custom header injection logic allows native WebGPU and Multi-threading access even on standard static hosts like GitHub Pages.
 
-## Hosting on Cloudflare Pages
-This branch is "Cloudflare-Ready" out of the box:
-1. **Headers**: Uses the root `_headers` file to set `Cross-Origin-Embedder-Policy: require-corp` and `Cross-Origin-Opener-Policy: same-origin`.
-2. **Assets**: Ensure `service-worker.js` is served with `Cache-Control: no-cache`.
-3. **Optimized Delivery**: Performance is available immediately on page load without the need for the Service Worker "shim" required on other platforms.
+---
 
-## Diagnostics (🔥)
-Check the **Fire icon (🔥)** in the top right to confirm your browser has successfully unlocked WebGPU and Multi-threading. If you see a **Warning (⚠️)**, the app is running in Compatibility Mode (CPU-only).
+## 🧩 Engines & Models
 
-## Browser Compatibility
-| Feature | Optimal (🔥) | Limited (⚠️) |
-| :--- | :--- | :--- |
-| **Engine** | Chromium 113+ (Chrome, Edge) | Firefox, Safari |
-| **PWA / Cache** | Supported | Limited in Incognito |
-| **WebGPU** | Native | Experimental / Disabled |
-| **WASM Threading** | Active (via COOP/COEP) | Fallback to Single-Thread |
+### **✔ PaddleOCR (High‑Precision)**
+- **Fully Local**: Loads `det.onnx` and `rec.onnx` strictly from the `/models/` folder.
+- **WebGPU Inference**: Lag-free multi-line processing via native hardware access.
+- **WASM Fallback**: Multi-threaded fallback for environments where WebGPU is unavailable.
 
-> [!IMPORTANT]
-> Some browsers, mobile devices, or highly restricted enterprise environments may not support WebGPU or SharedArrayBuffer. In these cases, the application will fallback to **Compatibility Mode**, which is significantly slower. If the page fails to load, ensure you are not in a "Private/Incognito" tab which may block the Service Worker.
+### **✔ Tesseract (Standard OCR)**
+- **Lightweight Logic**: Optimized for low-latency standard text blocks.
+- **Hybrid Preprocessing**: Compatible with all advanced image processing modes (Adaptive, Multi-Pass, etc.).
 
-## Tips
-- Use **Scaling 3×** or **4×** for low-resolution media or small font sizes.
-- Use the **Auto-Capture** feature for hands-free extracted text flow during gameplay.
-- **Clipping**: Highlighting text in the transcription area will automatically copy it to your clipboard if enabled.
+### **✔ Purged Assets (Lite Edition)**
+To ensure binary size compliance and deployment stability, the following have been permanently removed:
+- MangaOCR engine and Transformers-based models.
+- External CDN dependencies for model assets.
+- Legacy nested model directory structures.
+
+---
+
+## 🔒 Privacy & Security
+
+PersonalOCR Lite performs **all OCR locally** in your browser:
+- No servers, no uploads, and zero telemetry.
+- All model inference happens on your local hardware.
+- The included Service Worker enforces `COOP` and `COEP` headers to unlock high-performance browser features safely.
+
+---
+
+## 🛠 Installation & Deployment
+
+1. **Clone/Fork**: This repository is ready for GitHub Pages out of the box.
+2. **Models**: Ensure `det.onnx`, `rec.onnx`, and `jpn.traineddata` are present in the `models/` directory.
+3. **Activation**: Load the page, then **reload once**. The first load installs the Service Worker; the second load activates the high-performance header injection.
+
+---
+
+## 📊 Diagnostics (🔥)
+Check the **Performance Icon** in the top right.
+- **🔥 High-Performance**: WebGPU and Multi-threading are active.
+- **⚠️ Compatibility Mode**: Running in restricted mode (usually due to browser sandboxing).
+
+---
+
+## 📘 License
+MIT License. All OCR models belong to their respective authors.
+
+---
+
+## 📝 Project Context
+This branch represents the unification of the **Gold v3.1** stability standards with the **Lite** portability requirements. It is the definitive build for users requiring a standalone, crash-proof OCR solution without the storage overhead of Transformers models.
