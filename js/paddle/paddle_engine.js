@@ -151,14 +151,20 @@ export class PaddleOCR {
             const detDummy = new ort.Tensor('float32', new Float32Array(1 * 3 * 960 * 960), detShape);
             const detFeeds = {};
             detFeeds[this.detSession.inputNames[0]] = detDummy;
-            await this.detSession.run(detFeeds);
+            const detOutput = await this.detSession.run(detFeeds);
+            // Explicit memory cleanup for warm-up outputs
+            Object.keys(detFeeds).forEach(k => detFeeds[k] = null);
+            if (detOutput) Object.keys(detOutput).forEach(k => detOutput[k] = null);
 
             // Warm up Recognition Model (48x320)
             const recShape = [1, 3, 48, 320];
             const recDummy = new ort.Tensor('float32', new Float32Array(1 * 3 * 48 * 320), recShape);
             const recFeeds = {};
             recFeeds[this.recSession.inputNames[0]] = recDummy;
-            await this.recSession.run(recFeeds);
+            const recOutput = await this.recSession.run(recFeeds);
+            // Explicit memory cleanup for warm-up outputs
+            Object.keys(recFeeds).forEach(k => recFeeds[k] = null);
+            if (recOutput) Object.keys(recOutput).forEach(k => recOutput[k] = null);
 
             console.log('[ENGINE] PaddleOCR warm-up complete');
         } catch (err) {

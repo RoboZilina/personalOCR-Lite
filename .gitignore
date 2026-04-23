@@ -1,2 +1,20 @@
 ﻿models/manga/*.onnx
 models/manga/vocab.json
+
+# Unused static font variants (only variable-weight fonts are used)
+fonts/inter/static/
+
+# IDE and OS artifacts
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Internal documentation (not for production deployment)
+diagnostic_report_v3_1_1.md
+v3_0_nomangaOCR_GOLD_SNAPSHOT.md
+plans/
+scratch/

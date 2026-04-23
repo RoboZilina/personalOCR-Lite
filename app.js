@@ -514,8 +514,17 @@ function loadVoices() {
         });
     }
 }
+// Register event FIRST, then call immediately, with a fallback poll
+// This handles the Chrome race where onvoiceschanged may fire before the handler is registered
 window.speechSynthesis.onvoiceschanged = loadVoices;
 loadVoices();
+// Fallback: poll once after 1s if voices still empty (handles edge cases where
+// onvoiceschanged fires before registration and the initial call returns empty)
+setTimeout(() => {
+    if (ttsVoiceSelect && ttsVoiceSelect.options.length <= 1) {
+        loadVoices();
+    }
+}, 1000);
 
 // Gold v3.1: Moved upscaleSlider.oninput to initSettings for unified state management
 
@@ -709,11 +718,14 @@ function stopCapture() {
     selectWindowBtn.textContent = 'Select Window Source';
 }
 
-if (selectWindowBtn) selectWindowBtn.onclick = () => videoStream ? stopCapture() : startCapture();
+// [H2] selectWindowBtn.onclick moved to initEventListeners_Part3()
 
 // ==========================================
 // 3. Selection Overlay Logic
 // ==========================================
+
+// Safety stub: prevents TypeError if selectionOverlay element is missing
+window.drawSelectionRect = window.drawSelectionRect || function() {};
 
 if (selectionOverlay) {
     const ctx = selectionOverlay.getContext('2d');
@@ -853,32 +865,7 @@ function checkAutoCapture() {
     lastScoutData = new Uint32Array(currentData);
 }
 
-if (autoToggle) {
-    autoToggle.onchange = () => {
-        const label = autoToggle.nextElementSibling;
-        setSetting('autoCapture', autoToggle.checked);
-        if (autoToggle.checked) {
-            if (label) label.textContent = "auto re-capture ON";
-            if (autoCaptureTimer) clearInterval(autoCaptureTimer);
-            
-            // Gold v3.1 Guard: Prevent recursive reloads during side-menu interactions
-            (async () => {
-                // Hardening: Only trigger a potential reload if the engine isn't already active.
-                // This prevents redundant loads when toggling other side-menu settings.
-                if (!EngineManager.isReady()) {
-                    await switchEngineModular(EngineManager.getInfo().id || engineSelector?.value || "tesseract");
-                }
-                autoCaptureTimer = setInterval(checkAutoCapture, 500);
-            })();
-        } else {
-            if (label) label.textContent = "auto re-capture OFF";
-            clearInterval(autoCaptureTimer);
-            if (stabilityTimer) clearTimeout(stabilityTimer); // Gold v3.1 Phantom Cleanup
-            autoToggle.parentElement.classList.remove('active');
-            autoCaptureBtn?.classList.remove('scanning');
-        }
-    };
-}
+// [H2] autoToggle.onchange moved to initEventListeners_Part3()
 
 // ==========================================
 // 5. OCR Processing Core
@@ -1659,40 +1646,10 @@ function addOCRResultToUI(text, confidence = null) {
     }
 }
 
-if (clearHistoryBtn) {
-    clearHistoryBtn.onclick = () => {
-        if (historyContent) historyContent.innerHTML = '';
-        if (latestText) latestText.textContent = 'Waiting for capture...';
-        localStorage.removeItem('vn-ocr-public-history-v2');
-        localStorage.removeItem('vn-ocr-public-history');
-    };
-}
+// [H2] clearHistoryBtn.onclick moved to initEventListeners_Part3()
 
-if (refreshOcrBtn) {
-    refreshOcrBtn.onclick = async () => {
-        if (!selectionRect) return;
-
-        // Throttled Manual Capture (Patch v3.1 Gold)
-        if (captureLocked || !engineReady) {
-            console.warn("[UI] Capture ignored — button is locked or engine not ready.");
-            return;
-        }
-
-        captureLocked = true;
-        updateCaptureButtonState();
-
-        try {
-            await captureFrame(selectionRect);
-        } finally {
-            // Standard UX Cooldown
-            setTimeout(() => {
-                captureLocked = false;
-                updateCaptureButtonState();
-            }, 300);
-        }
-    };
-}
-if (autoCaptureBtn) autoCaptureBtn.onclick = () => autoToggle?.click();
+// [H2] refreshOcrBtn.onclick moved to initEventListeners_Part3()
+// [H2] autoCaptureBtn.onclick moved to initEventListeners_Part3()
 
 function openUserGuide() {
     const helpModal = document.getElementById('help-modal');
@@ -1886,6 +1843,74 @@ function initEventListeners_Part2() {
     });
 }
 
+// 6.4.5 Event Listener Part 3 — Module-level → encapsulated (H2)
+function initEventListeners_Part3() {
+    if (selectWindowBtn) selectWindowBtn.onclick = () => videoStream ? stopCapture() : startCapture();
+
+    if (autoToggle) {
+        autoToggle.onchange = () => {
+            const label = autoToggle.nextElementSibling;
+            setSetting('autoCapture', autoToggle.checked);
+            if (autoToggle.checked) {
+                if (label) label.textContent = "auto re-capture ON";
+                if (autoCaptureTimer) clearInterval(autoCaptureTimer);
+                
+                // Gold v3.1 Guard: Prevent recursive reloads during side-menu interactions
+                (async () => {
+                    // Hardening: Only trigger a potential reload if the engine isn't already active.
+                    // This prevents redundant loads when toggling other side-menu settings.
+                    if (!EngineManager.isReady()) {
+                        await switchEngineModular(EngineManager.getInfo().id || engineSelector?.value || "tesseract");
+                    }
+                    autoCaptureTimer = setInterval(checkAutoCapture, 500);
+                })();
+            } else {
+                if (label) label.textContent = "auto re-capture OFF";
+                clearInterval(autoCaptureTimer);
+                if (stabilityTimer) clearTimeout(stabilityTimer); // Gold v3.1 Phantom Cleanup
+                autoToggle.parentElement.classList.remove('active');
+                autoCaptureBtn?.classList.remove('scanning');
+            }
+        };
+    }
+
+    if (clearHistoryBtn) {
+        clearHistoryBtn.onclick = () => {
+            if (historyContent) historyContent.innerHTML = '';
+            if (latestText) latestText.textContent = 'Waiting for capture...';
+            localStorage.removeItem('vn-ocr-public-history-v2');
+            localStorage.removeItem('vn-ocr-public-history');
+        };
+    }
+
+    if (refreshOcrBtn) {
+        refreshOcrBtn.onclick = async () => {
+            if (!selectionRect) return;
+
+            // Throttled Manual Capture (Patch v3.1 Gold)
+            if (captureLocked || !engineReady) {
+                console.warn("[UI] Capture ignored — button is locked or engine not ready.");
+                return;
+            }
+
+            captureLocked = true;
+            updateCaptureButtonState();
+
+            try {
+                await captureFrame(selectionRect);
+            } finally {
+                // Standard UX Cooldown
+                setTimeout(() => {
+                    captureLocked = false;
+                    updateCaptureButtonState();
+                }, 300);
+            }
+        };
+    }
+
+    if (autoCaptureBtn) autoCaptureBtn.onclick = () => autoToggle?.click();
+}
+
 // 6.5 Global Initialization
 async function globalInitialize() {
     __diag.globalInitCalled = true;
@@ -1934,6 +1959,7 @@ async function globalInitialize() {
     initSettings();
     initEventListeners_Part1();
     initEventListeners_Part2();
+    initEventListeners_Part3();
 
 
 
@@ -2003,15 +2029,6 @@ async function globalInitialize() {
     updateCaptureButtonState();
 
     // Settings Hardening: Final UI Sync
-    // We fire this at the VERY end to ensure the DOM grid and sidebar are stable
-    // before applying layout classes like .history-hidden
-    applySettingsToUI();
-
-    // Final Sync: Check if the engine is already ready from a restored session
-    engineReady = EngineManager.isReady();
-    updateCaptureButtonState();
-
-    // Settings Hardening: Final UI Sync (Two-Pass Sync)
     // We fire this at the VERY end to ensure the DOM grid and sidebar are stable
     // before applying layout classes like .history-hidden
     applySettingsToUI();
