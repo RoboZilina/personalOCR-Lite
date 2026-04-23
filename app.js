@@ -51,7 +51,24 @@ import { PaddleOCR } from './js/paddle/paddle_engine.js';
 
 // DOM Elements
 // DOM Elements (Identified as Gold v3.1.1 Lifecycle Nodes)
-let selectWindowBtn, vnVideo, selectionOverlay, historyContent, ttsVoiceSelect, speakLatestBtn, latestText, ocrStatus, refreshOcrBtn, clearHistoryBtn, engineSelector, modeSelector, autoToggle, autoCaptureBtn, upscaleSlider, upscaleVal, perfIcon, perfInfo;
+let selectWindowBtn = document.getElementById('select-window-btn');
+let vnVideo = document.getElementById('vn-video');
+let selectionOverlay = document.getElementById('selection-overlay');
+let historyContent = document.getElementById('history-content');
+let ttsVoiceSelect = document.getElementById('tts-voice-select');
+let speakLatestBtn = document.getElementById('speak-latest-btn');
+let latestText = document.getElementById('latest-text');
+let ocrStatus = document.getElementById('ocr-status');
+let refreshOcrBtn = document.getElementById('refresh-ocr-btn');
+let clearHistoryBtn = document.getElementById('clear-history-btn');
+let engineSelector = document.getElementById('model-selector');
+let modeSelector = document.getElementById('mode-selector');
+let autoToggle = document.getElementById('auto-capture-toggle');
+let autoCaptureBtn = document.getElementById('auto-capture-btn');
+let upscaleSlider = document.getElementById('upscale-slider');
+let upscaleVal = document.getElementById('upscale-val');
+let perfIcon = document.getElementById('perf-icon');
+let perfInfo = document.getElementById('perf-info');
 
 // [DIAGNOSTIC] Track initialization state for debugging
 const __diag = { topLevelExecuted: false, globalInitCalled: false };
@@ -644,17 +661,6 @@ async function preprocessForEngine(engineId, rawCanvas, mode, lineCount) {
 }
 
 
-if (modeSelector) {
-    modeSelector.addEventListener('change', () => {
-        applyUIToSettings();
-        // if (getSetting('debug')) console.debug('[Mode Select] Mode updated:', modeSelector.value);
-        removeMultiPassOverlay();
-        setOCRStatus('ready', '');
-    });
-}
-
-
-
 // ==========================================
 // 1. Audio & TTS
 // ==========================================
@@ -668,52 +674,6 @@ function speak(text) {
     utterance.lang = 'ja-JP';
     currentUtterance = utterance;
     window.speechSynthesis.speak(utterance);
-}
-
-if (speakLatestBtn) speakLatestBtn.onclick = () => { if (latestText) speak(latestText.textContent); };
-
-if (historyContent) {
-    historyContent.addEventListener('click', e => {
-        const btn = e.target.closest('button');
-        if (!btn) return;
-        const item = btn.closest('.history-item');
-        const textSpan = item ? item.querySelector('span') : null;
-        if (!textSpan) return;
-        const action = btn.getAttribute('data-action');
-        if (action === 'speak') speak(textSpan.textContent);
-        if (action === 'copy') {
-            navigator.clipboard.writeText(textSpan.textContent).catch(() => {});
-            btn.innerHTML = '✅';
-            setTimeout(() => btn.innerHTML = '📋', 1000);
-        }
-    });
-    historyContent.addEventListener('mouseup', async () => {
-        if (!getSetting('autoCopy')) return;
-        const sel = window.getSelection().toString().trim();
-        if (!sel) return;
-        try {
-            await navigator.clipboard.writeText(sel);
-            historyContent.classList.add('copied-flash');
-            setTimeout(() => historyContent.classList.remove('copied-flash'), 200);
-        } catch (err) {
-            console.warn("[UX] Auto-Copy failed (clipboard restricted):", err);
-        }
-    });
-}
-
-if (latestText) {
-    latestText.addEventListener('mouseup', async () => {
-        if (!getSetting('autoCopy')) return;
-        const sel = window.getSelection().toString().trim();
-        if (!sel) return;
-        try {
-            await navigator.clipboard.writeText(sel);
-            latestText.classList.add('copied-flash');
-            setTimeout(() => latestText.classList.remove('copied-flash'), 200);
-        } catch (err) {
-            console.warn("[UX] Auto-Copy failed (clipboard restricted):", err);
-        }
-    });
 }
 
 // ==========================================
@@ -749,15 +709,7 @@ function stopCapture() {
     selectWindowBtn.textContent = 'Select Window Source';
 }
 
-// [DIAGNOSTIC] Check if selectWindowBtn is available at top-level execution
-__diag.topLevelExecuted = true;
-console.log(`[DIAG] Top-level listener assignment — selectWindowBtn is ${selectWindowBtn ? 'FOUND' : 'UNDEFINED'}`);
-if (selectWindowBtn) {
-    selectWindowBtn.onclick = () => videoStream ? stopCapture() : startCapture();
-    console.log('[DIAG] ✅ selectWindowBtn.onclick ATTACHED at top level');
-} else {
-    console.log('[DIAG] ❌ selectWindowBtn.onclick NOT attached — variable is undefined (race condition)');
-}
+if (selectWindowBtn) selectWindowBtn.onclick = () => videoStream ? stopCapture() : startCapture();
 
 // ==========================================
 // 3. Selection Overlay Logic
