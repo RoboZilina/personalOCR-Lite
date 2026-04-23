@@ -49,26 +49,25 @@ import { PaddleOCR } from './js/paddle/paddle_engine.js';
 
 // ==========================================
 
-// DOM Elements
-// DOM Elements (Identified as Gold v3.1.1 Lifecycle Nodes)
-let selectWindowBtn = document.getElementById('select-window-btn');
-let vnVideo = document.getElementById('vn-video');
-let selectionOverlay = document.getElementById('selection-overlay');
-let historyContent = document.getElementById('history-content');
-let ttsVoiceSelect = document.getElementById('tts-voice-select');
-let speakLatestBtn = document.getElementById('speak-latest-btn');
-let latestText = document.getElementById('latest-text');
-let ocrStatus = document.getElementById('ocr-status');
-let refreshOcrBtn = document.getElementById('refresh-ocr-btn');
-let clearHistoryBtn = document.getElementById('clear-history-btn');
-let engineSelector = document.getElementById('model-selector');
-let modeSelector = document.getElementById('mode-selector');
-let autoToggle = document.getElementById('auto-capture-toggle');
-let autoCaptureBtn = document.getElementById('auto-capture-btn');
-let upscaleSlider = document.getElementById('upscale-slider');
-let upscaleVal = document.getElementById('upscale-val');
-let perfIcon = document.getElementById('perf-icon');
-let perfInfo = document.getElementById('perf-info');
+// DOM Elements (Gold v3.1.1 Lifecycle Nodes)
+const selectWindowBtn = document.getElementById('select-window-btn');
+const vnVideo = document.getElementById('vn-video');
+const selectionOverlay = document.getElementById('selection-overlay');
+const historyContent = document.getElementById('history-content');
+const ttsVoiceSelect = document.getElementById('tts-voice-select');
+const speakLatestBtn = document.getElementById('speak-latest-btn');
+const latestText = document.getElementById('latest-text');
+const ocrStatus = document.getElementById('ocr-status');
+const refreshOcrBtn = document.getElementById('refresh-ocr-btn');
+const clearHistoryBtn = document.getElementById('clear-history-btn');
+const engineSelector = document.getElementById('model-selector');
+const modeSelector = document.getElementById('mode-selector');
+const autoToggle = document.getElementById('auto-capture-toggle');
+const autoCaptureBtn = document.getElementById('auto-capture-btn');
+const upscaleSlider = document.getElementById('upscale-slider');
+const upscaleVal = document.getElementById('upscale-val');
+const perfIcon = document.getElementById('perf-icon');
+const perfInfo = document.getElementById('perf-info');
 
 // [DIAGNOSTIC] Track initialization state for debugging
 const __diag = { topLevelExecuted: false, globalInitCalled: false };
@@ -140,9 +139,18 @@ if (perfIcon && perfInfo) {
     };
 }
 
-/** 
+// modeSelector change listener: reset multipass overlay + OCR status on mode switch
+if (modeSelector) {
+    modeSelector.addEventListener('change', () => {
+        applyUIToSettings();
+        removeMultiPassOverlay();
+        setOCRStatus('ready', '');
+    });
+}
+
+/**
  * Synchronizes the performance icon with engine-level reality.
- * @param {'webgpu'|'wasm'} type 
+ * @param {'webgpu'|'wasm'} type
  */
 function updatePerformanceIcon(type) {
     if (!perfIcon || !perfInfo) return;
@@ -683,6 +691,59 @@ function speak(text) {
     utterance.lang = 'ja-JP';
     currentUtterance = utterance;
     window.speechSynthesis.speak(utterance);
+}
+
+// Module-level listener: speakLatestBtn
+if (speakLatestBtn) {
+    speakLatestBtn.onclick = () => {
+        if (latestText) speak(latestText.textContent);
+    };
+}
+
+// Module-level listener: historyContent click delegation (speak/copy) + auto-copy
+if (historyContent) {
+    historyContent.addEventListener('click', e => {
+        const btn = e.target.closest('button');
+        if (!btn) return;
+        const item = btn.closest('.history-item');
+        const textSpan = item ? item.querySelector('span') : null;
+        if (!textSpan) return;
+        const action = btn.getAttribute('data-action');
+        if (action === 'speak') speak(textSpan.textContent);
+        if (action === 'copy') {
+            navigator.clipboard.writeText(textSpan.textContent).catch(() => {});
+            btn.innerHTML = '✅';
+            setTimeout(() => btn.innerHTML = '📋', 1000);
+        }
+    });
+    historyContent.addEventListener('mouseup', async () => {
+        if (!getSetting('autoCopy')) return;
+        const sel = window.getSelection().toString().trim();
+        if (!sel) return;
+        try {
+            await navigator.clipboard.writeText(sel);
+            historyContent.classList.add('copied-flash');
+            setTimeout(() => historyContent.classList.remove('copied-flash'), 200);
+        } catch (err) {
+            console.warn("[UX] Auto-Copy failed (clipboard restricted):", err);
+        }
+    });
+}
+
+// Module-level listener: auto-copy on latestText selection
+if (latestText) {
+    latestText.addEventListener('mouseup', async () => {
+        if (!getSetting('autoCopy')) return;
+        const sel = window.getSelection().toString().trim();
+        if (!sel) return;
+        try {
+            await navigator.clipboard.writeText(sel);
+            latestText.classList.add('copied-flash');
+            setTimeout(() => latestText.classList.remove('copied-flash'), 200);
+        } catch (err) {
+            console.warn("[UX] Auto-Copy failed (clipboard restricted):", err);
+        }
+    });
 }
 
 // ==========================================
@@ -1916,28 +1977,7 @@ async function globalInitialize() {
     __diag.globalInitCalled = true;
     console.log(`[DIAG] globalInitialize() ENTERED — document.readyState: ${document.readyState}`);
 
-    // Phase 1: Materialize DOM Nodes (Race Condition Fix)
-    selectWindowBtn = document.getElementById('select-window-btn');
-    console.log(`[DIAG] After DOM assignment — selectWindowBtn is ${selectWindowBtn ? 'FOUND' : 'STILL NULL'}`);
-    vnVideo = document.getElementById('vn-video');
-    selectionOverlay = document.getElementById('selection-overlay');
-    historyContent = document.getElementById('history-content');
-    ttsVoiceSelect = document.getElementById('tts-voice-select');
-    speakLatestBtn = document.getElementById('speak-latest-btn');
-    latestText = document.getElementById('latest-text');
-    ocrStatus = document.getElementById('ocr-status');
-    refreshOcrBtn = document.getElementById('refresh-ocr-btn');
-    clearHistoryBtn = document.getElementById('clear-history-btn');
-    engineSelector = document.getElementById('model-selector');
-    modeSelector = document.getElementById('mode-selector');
-    autoToggle = document.getElementById('auto-capture-toggle');
-    autoCaptureBtn = document.getElementById('auto-capture-btn');
-    upscaleSlider = document.getElementById('upscale-slider');
-    upscaleVal = document.getElementById('upscale-val');
-    perfIcon = document.getElementById('perf-icon');
-    perfInfo = document.getElementById('perf-info');
-
-    // Phase 2: Internal readiness logic
+    // Phase 1: Internal readiness logic (DOM elements are const — no reassignment needed)
     if (modeSelector && engineSelector) {
         modeSelector.disabled = (engineSelector.value !== 'tesseract');
     }
