@@ -1251,7 +1251,7 @@ function adaptiveThreshold(canvas, ctx, res, { windowDivisor, thresholdFactor, p
     canvas = sharpenCanvas(canvas);
     if (preDenoise) canvas = medianFilter(canvas);
 
-    const octx = res.getContext('2d');
+    const octx = res.getContext('2d', { willReadFrequently: true });
     octx.drawImage(canvas, 0, 0);
     const id2 = octx.getImageData(0, 0, res.width, res.height);
     const d2 = id2.data;

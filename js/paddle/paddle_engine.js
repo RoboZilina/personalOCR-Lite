@@ -24,6 +24,14 @@ export class PaddleOCR {
         // Hardening Patch v2.5: Pre-allocated buffer for zero-churn recognition
         this.recognitionBuffer = null;
         this.recognitionBufferSize = 48 * 320 * 3;
+
+        // ORT InferenceSession serialization queues.
+        // ONNX Runtime Web does NOT support concurrent session.run() calls on the same session.
+        // These promise chains serialize access so that concurrent recognize()/detect() calls
+        // execute one at a time, preventing "Session already started" / "Session mismatch" errors.
+        // This has zero impact on single-line mode (only 1 concurrent call, queue resolves immediately).
+        this._recognizeQueue = Promise.resolve();
+        this._detectQueue = Promise.resolve();
     }
 
     /** Interface-compliant initialization */
@@ -197,38 +205,41 @@ export class PaddleOCR {
     async detect(canvas) {
         if (!this.detSession) return { boxes: [] };
 
-        try {
+        // Serialize access to detSession (ORT does not support concurrent session.run() calls).
+        // Each call chains onto the previous one — the queue resolves instantly for the first caller.
+        this._detectQueue = this._detectQueue.then(async () => {
+            try {
+                const inputSize = this.manifest.det.input_size || [960, 960];
+                const [h, w] = inputSize;
 
-            const inputSize = this.manifest.det.input_size || [960, 960];
-            const [h, w] = inputSize;
+                const tensorData = canvasToFloat32Tensor(canvas, inputSize, this.normalize);
+                if (!tensorData) return { boxes: [] };
+                
+                const inputTensor = new ort.Tensor('float32', tensorData, [1, 3, h, w]);
 
-            const tensorData = canvasToFloat32Tensor(canvas, inputSize, this.normalize);
-            if (!tensorData) return { boxes: [] };
-            
-            const inputTensor = new ort.Tensor('float32', tensorData, [1, 3, h, w]);
+                const feeds = {};
+                feeds[this.detSession.inputNames[0]] = inputTensor;
 
-            const feeds = {};
-            feeds[this.detSession.inputNames[0]] = inputTensor;
+                const output = await this.detSession.run(feeds);
+                const outputName = this.detSession.outputNames[0];
+                const map = output[outputName].data;
+                const dims = output[outputName].dims;
 
-            const output = await this.detSession.run(feeds);
-            const outputName = this.detSession.outputNames[0];
-            const map = output[outputName].data;
-            const dims = output[outputName].dims;
+                const mapH = dims[2];
+                const mapW = dims[3];
 
-            const mapH = dims[2];
-            const mapW = dims[3];
+                const boxes = this._extractBoxesFromMap(map, mapH, mapW, canvas.width, canvas.height);
 
-            const boxes = this._extractBoxesFromMap(map, mapH, mapW, canvas.width, canvas.height);
-
-            
-            // Memory Cleanup
-            feeds[this.detSession.inputNames[0]] = null;
-            
-            return { boxes };
-        } catch (err) {
-            console.error("PaddleOCR: Detection Error:", err);
-            return { boxes: [] };
-        }
+                // Memory Cleanup
+                feeds[this.detSession.inputNames[0]] = null;
+                
+                return { boxes };
+            } catch (err) {
+                console.error("PaddleOCR: Detection Error:", err);
+                return { boxes: [] };
+            }
+        });
+        return await this._detectQueue;
     }
 
     _extractBoxesFromMap(map, mapH, mapW, origW, origH) {
@@ -313,48 +324,51 @@ export class PaddleOCR {
     async recognize(cropCanvas) {
         if (!this.recSession) return { text: '' };
 
-        try {
-            const inputSize = this.manifest.rec.input_size || [48, 320];
-            const [h, w] = inputSize;
+        // Serialize access to recSession (ORT does not support concurrent session.run() calls).
+        // Each call chains onto the previous one — the queue resolves instantly for the first caller.
+        this._recognizeQueue = this._recognizeQueue.then(async () => {
+            try {
+                const inputSize = this.manifest.rec.input_size || [48, 320];
+                const [h, w] = inputSize;
 
-            if (!this.recognitionBuffer) {
-                this.recognitionBuffer = new Float32Array(this.recognitionBufferSize);
-                console.log('[ENGINE] PaddleOCR buffer pool active');
+                if (!this.recognitionBuffer) {
+                    this.recognitionBuffer = new Float32Array(this.recognitionBufferSize);
+                }
+
+                const tensorData = canvasToFloat32Tensor(cropCanvas, inputSize, this.normalize, this.recognitionBuffer);
+                if (!tensorData) return { text: '' };
+                
+                const inputTensor = new ort.Tensor('float32', tensorData, [1, 3, h, w]);
+
+                const feeds = {};
+                feeds[this.recSession.inputNames[0]] = inputTensor;
+
+                const output = await this.recSession.run(feeds);
+                const outputName = this.recSession.outputNames[0];
+                const out = output[outputName];
+
+                let logits = out.data;
+                let dims = out.dims;
+
+                if (dims.length === 4) {
+                    dims = [dims[0], dims[2], dims[3]];
+                } else if (dims.length === 2) {
+                    dims = [1, dims[0], dims[1]];
+                }
+
+                const text = this._ctcGreedyDecode(logits, dims);
+
+                // Memory Cleanup
+                feeds[this.recSession.inputNames[0]] = null;
+                logits = null;
+                
+                return text;
+            } catch (err) {
+                console.error("PaddleOCR: Recognition Error:", err);
+                return { text: '' };
             }
-
-            const tensorData = canvasToFloat32Tensor(cropCanvas, inputSize, this.normalize, this.recognitionBuffer);
-            if (!tensorData) return { text: '' };
-            
-            const inputTensor = new ort.Tensor('float32', tensorData, [1, 3, h, w]);
-
-            const feeds = {};
-            feeds[this.recSession.inputNames[0]] = inputTensor;
-
-            const output = await this.recSession.run(feeds);
-            const outputName = this.recSession.outputNames[0];
-            const out = output[outputName];
-
-            let logits = out.data;
-            let dims = out.dims;
-
-            if (dims.length === 4) {
-                dims = [dims[0], dims[2], dims[3]];
-            } else if (dims.length === 2) {
-                dims = [1, dims[0], dims[1]];
-            }
-
-            const text = this._ctcGreedyDecode(logits, dims);
-
-            
-            // Memory Cleanup
-            feeds[this.recSession.inputNames[0]] = null;
-            logits = null;
-            
-            return text;
-        } catch (err) {
-            console.error("PaddleOCR: Recognition Error:", err);
-            return { text: '' };
-        }
+        });
+        return await this._recognizeQueue;
     }
 
     _ctcGreedyDecode(logits, dims) {
