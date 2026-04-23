@@ -53,6 +53,9 @@ import { PaddleOCR } from './js/paddle/paddle_engine.js';
 // DOM Elements (Identified as Gold v3.1.1 Lifecycle Nodes)
 let selectWindowBtn, vnVideo, selectionOverlay, historyContent, ttsVoiceSelect, speakLatestBtn, latestText, ocrStatus, refreshOcrBtn, clearHistoryBtn, engineSelector, modeSelector, autoToggle, autoCaptureBtn, upscaleSlider, upscaleVal, perfIcon, perfInfo;
 
+// [DIAGNOSTIC] Track initialization state for debugging
+const __diag = { topLevelExecuted: false, globalInitCalled: false };
+
 // === Throttling & Readiness State (Patch v3.1 Gold) ===
 let captureLocked = false;
 let engineReady = false; 
@@ -746,7 +749,15 @@ function stopCapture() {
     selectWindowBtn.textContent = 'Select Window Source';
 }
 
-if (selectWindowBtn) selectWindowBtn.onclick = () => videoStream ? stopCapture() : startCapture();
+// [DIAGNOSTIC] Check if selectWindowBtn is available at top-level execution
+__diag.topLevelExecuted = true;
+console.log(`[DIAG] Top-level listener assignment — selectWindowBtn is ${selectWindowBtn ? 'FOUND' : 'UNDEFINED'}`);
+if (selectWindowBtn) {
+    selectWindowBtn.onclick = () => videoStream ? stopCapture() : startCapture();
+    console.log('[DIAG] ✅ selectWindowBtn.onclick ATTACHED at top level');
+} else {
+    console.log('[DIAG] ❌ selectWindowBtn.onclick NOT attached — variable is undefined (race condition)');
+}
 
 // ==========================================
 // 3. Selection Overlay Logic
@@ -1925,8 +1936,12 @@ function initEventListeners_Part2() {
 
 // 6.5 Global Initialization
 async function globalInitialize() {
+    __diag.globalInitCalled = true;
+    console.log(`[DIAG] globalInitialize() ENTERED — document.readyState: ${document.readyState}`);
+
     // Phase 1: Materialize DOM Nodes (Race Condition Fix)
     selectWindowBtn = document.getElementById('select-window-btn');
+    console.log(`[DIAG] After DOM assignment — selectWindowBtn is ${selectWindowBtn ? 'FOUND' : 'STILL NULL'}`);
     vnVideo = document.getElementById('vn-video');
     selectionOverlay = document.getElementById('selection-overlay');
     historyContent = document.getElementById('history-content');
@@ -2118,6 +2133,12 @@ async function globalInitialize() {
         }
     }
 
+
+    console.log('[DIAG] ✅ globalInitialize() COMPLETE — checking selectWindowBtn.onclick state:');
+    console.log(`[DIAG]   selectWindowBtn: ${selectWindowBtn ? 'FOUND' : 'NULL'}`);
+    console.log(`[DIAG]   selectWindowBtn.onclick: ${selectWindowBtn && selectWindowBtn.onclick ? 'ATTACHED' : 'NOT ATTACHED'}`);
+    console.log(`[DIAG]   videoStream: ${videoStream}`);
+    console.log(`[DIAG]   __diag:`, JSON.stringify(__diag));
 
 }
 
