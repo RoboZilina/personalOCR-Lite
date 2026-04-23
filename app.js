@@ -493,7 +493,11 @@ let videoStream = null;
 // Lifecycle flags (MIRRORED FOR AUDITABILITY)
 let captureGeneration = 0;
 let selectionRect = null;
-let multiPassOverlayCollapsed = false;
+// Persist collapse state across page reloads
+let multiPassOverlayCollapsed = (() => {
+    try { return localStorage.getItem('vn-ocr-multipass-collapsed') === 'true'; }
+    catch { return false; }
+})();
 
 
 // Smart Scout: 32x32 Comparison Logic
@@ -1631,6 +1635,7 @@ function showMultiPassOverlay(results, finalText) {
     header.addEventListener('click', () => {
         collapsed = !collapsed;
         multiPassOverlayCollapsed = collapsed;
+        try { localStorage.setItem('vn-ocr-multipass-collapsed', collapsed); } catch {}
 
         if (collapsed) {
             header.textContent = 'Multi‑Pass Analyst (click to expand)';
@@ -2112,7 +2117,15 @@ async function globalInitialize() {
     if (historyContent) {
         const savedV2 = localStorage.getItem('vn-ocr-public-history-v2');
         if (savedV2) {
-            const lines = JSON.parse(savedV2);
+            let lines;
+            try {
+                lines = JSON.parse(savedV2);
+            } catch (e) {
+                console.warn("[INIT] Corrupted history data, clearing:", e);
+                localStorage.removeItem('vn-ocr-public-history-v2');
+                localStorage.removeItem('vn-ocr-public-history');
+                lines = [];
+            }
             lines.reverse().forEach(line => {
                 const clean = line.replace(/\s+/g, '').trim();
                 if (!clean) return;

@@ -1,7 +1,9 @@
-// === VERSION — Update CACHE_NAME on every release ===
+// === VERSION — Update APP_VERSION on every release ===
 // This is the ONLY version string in the project.
 // Serve this file with Cache-Control: no-cache in production.
-const CACHE_NAME = 'vn-ocr-cache-v3.1.1-NOMANGA';
+const APP_VERSION = 'v3.1.1-NOMANGA';
+const CACHE_NAME = `vn-ocr-cache-${APP_VERSION}`;
+const MODEL_CACHE_NAME = `vn-ocr-models-${APP_VERSION}`;
 const ASSETS = [
     './',
     './index.html',
@@ -13,7 +15,6 @@ const ASSETS = [
     './js/paddle/paddle_engine.js',
     './js/onnx/ort.min.js'
 ];
-const MODEL_CACHE_NAME = 'vn-ocr-models-v1';
 
 self.addEventListener('install', (event) => {
     self.skipWaiting();
