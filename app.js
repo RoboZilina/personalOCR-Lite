@@ -292,10 +292,18 @@ const EngineManager = (() => {
 
         try {
             const deps = { reportStatus: notifyStatus };
+            console.log(`[DIAG-ENGINE] loadEngine() calling factory for: ${currentLabel}`);
             currentEngine = registryEntry.factory(deps);
+            console.log(`[DIAG-ENGINE] factory returned. Engine type:`, currentEngine?.constructor?.name);
 
             if (currentEngine && typeof currentEngine.load === 'function') {
+                console.log(`[DIAG-ENGINE] Calling currentEngine.load()...`);
+                console.time(`engine-load-${currentLabel}`);
                 await currentEngine.load();
+                console.timeEnd(`engine-load-${currentLabel}`);
+                console.log(`[DIAG-ENGINE] currentEngine.load() completed. isLoaded:`, currentEngine.isLoaded);
+            } else {
+                console.log(`[DIAG-ENGINE] No .load() method on engine`);
             }
 
             isReady = true;
@@ -304,6 +312,7 @@ const EngineManager = (() => {
         } catch (err) {
             isReady = false;
             notifyStatus('error', '🔴 Load Failed');
+            console.error(`[DIAG-ENGINE] loadEngine() caught error:`, err);
             throw err;
         }
     }
@@ -1764,13 +1773,19 @@ function initSettings() {
     const heavyWarningCheckbox = document.getElementById('heavy-warning-checkbox');
     if (heavyWarningCheckbox) {
         heavyWarningCheckbox.onchange = () => {
-            setSetting('showHeavyWarning', !heavyWarningCheckbox.checked);
+            const oldVal = getSetting('showHeavyWarning');
+            const newVal = !heavyWarningCheckbox.checked;
+            setSetting('showHeavyWarning', newVal);
+            console.log(`[DIAG-BANNER] heavy-warning-checkbox changed: showHeavyWarning ${oldVal} → ${newVal} (checked=${heavyWarningCheckbox.checked})`);
         };
     }
     const bannerNoCallCheckbox = document.getElementById('banner-nocall-checkbox');
     if (bannerNoCallCheckbox) {
         bannerNoCallCheckbox.onchange = () => {
-            setSetting('showHeavyWarning', !bannerNoCallCheckbox.checked);
+            const oldVal = getSetting('showHeavyWarning');
+            const newVal = !bannerNoCallCheckbox.checked;
+            setSetting('showHeavyWarning', newVal);
+            console.log(`[DIAG-BANNER] banner-nocall-checkbox .onchange: showHeavyWarning ${oldVal} → ${newVal} (checked=${bannerNoCallCheckbox.checked})`);
         };
     }
 
@@ -1781,6 +1796,7 @@ function initSettings() {
     // Startup Banner Logic
     if (engine === 'paddle' && showWarning) {
         document.getElementById('startup-banner')?.classList.add('active');
+        console.log('[DIAG-BANNER] Startup banner shown (paddle + showHeavyWarning)');
     }
 
     // Sync Engine Selector UI
@@ -1830,10 +1846,12 @@ function initEventListeners_Part1() {
         if (baseMode === 'paddle' && getSetting('showHeavyWarning')) {
             const currentEngine = getSetting('ocrEngine');
             const currentLines = getSetting('paddleLineCount');
-            engineSelector.value = (currentEngine === 'tesseract')
+            const revertTo = (currentEngine === 'tesseract')
                 ? 'tesseract'
                 : (currentEngine === 'paddle' ? `paddle_${currentLines}` : currentEngine);
+            engineSelector.value = revertTo;
 
+            console.log(`[DIAG-MODAL] Paddle selected with warning ON. Reverting selector to ${revertTo}. Showing modal.`);
             document.getElementById('paddle-modal')?.classList.add('active');
             if (selectionRect) window.drawSelectionRect();
             return;
@@ -1853,9 +1871,11 @@ function initEventListeners_Part1() {
 function initEventListeners_Part2() {
     // 6.3 Modal Event Listeners
     document.getElementById('paddle-continue')?.addEventListener('click', async () => {
+        console.log('[DIAG-MODAL] paddle-continue clicked. showHeavyWarning before:', getSetting('showHeavyWarning'));
         const checkbox = document.getElementById('heavy-warning-checkbox');
         if (checkbox?.checked) {
             setSetting('showHeavyWarning', false);
+            console.log('[DIAG-MODAL] showHeavyWarning set to false (checkbox was checked)');
         }
 
         const count = getSetting('paddleLineCount') || 3;
@@ -1864,19 +1884,24 @@ function initEventListeners_Part2() {
         // THE FIX: Persist the engine setting immediately so it isn't lost on the next UI sync
         setSetting('ocrEngine', 'paddle');
 
+        console.log('[DIAG-MODAL] Before switchEngineModular, modal active:', document.getElementById('paddle-modal')?.classList.contains('active'));
         await switchEngineModular(`paddle_${count}`);
+        console.log('[DIAG-MODAL] After switchEngineModular completed');
 
         document.getElementById('paddle-modal').classList.remove('active');
+        console.log('[DIAG-MODAL] Modal active class removed. Active after removal:', document.getElementById('paddle-modal')?.classList.contains('active'));
         if (selectionRect) window.drawSelectionRect();
     });
 
     document.getElementById('paddle-cancel')?.addEventListener('click', () => {
+        console.log('[DIAG-MODAL] paddle-cancel clicked');
         // Rely on currentEngine logic to fallback
         const currentEngine = getSetting('ocrEngine');
         const currentLines = getSetting('paddleLineCount');
         engineSelector.value = (currentEngine === 'tesseract') ? 'tesseract' : (currentEngine === 'paddle' ? `paddle_${currentLines}` : currentEngine);
 
         document.getElementById('paddle-modal').classList.remove('active');
+        console.log('[DIAG-MODAL] paddle-modal dismissed via cancel');
         if (selectionRect) window.drawSelectionRect();
     });
 
@@ -1901,10 +1926,14 @@ function initEventListeners_Part2() {
     });
 
     document.getElementById('banner-nocall-checkbox')?.addEventListener('change', (e) => {
-        setSetting('showHeavyWarning', !e.target.checked);
+        const oldVal = getSetting('showHeavyWarning');
+        const newVal = !e.target.checked;
+        setSetting('showHeavyWarning', newVal);
+        console.log(`[DIAG-BANNER] banner-nocall-checkbox addEventListener: showHeavyWarning ${oldVal} → ${newVal} (checked=${e.target.checked})`);
     });
 
     document.getElementById('banner-close')?.addEventListener('click', () => {
+        console.log('[DIAG-BANNER] banner-close clicked');
         document.getElementById('startup-banner')?.classList.remove('active');
     });
 }

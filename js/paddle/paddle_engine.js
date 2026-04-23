@@ -18,6 +18,8 @@ export class PaddleOCR {
         this.dict = [];
         this.normalize = { mean: [0.5, 0.5, 0.5], std: [0.5, 0.5, 0.5] };
         this.isLoaded = false;
+        console.log('[DIAG-PADDLE] Constructor: calling this.load() immediately');
+        console.time('paddle-ctor-load');
         this.initPromise = this.load();
 
         // Hardening Patch v2.5: Pre-allocated buffer for zero-churn recognition
@@ -27,6 +29,11 @@ export class PaddleOCR {
 
     /** Interface-compliant initialization */
     async load() {
+        console.log(`[DIAG-PADDLE] load() called. isLoaded=${this.isLoaded}, loadModels already running: ${this._loading ? 'YES' : 'NO'}`);
+        if (this._loading) {
+            console.log('[DIAG-PADDLE] loadModels already in progress, awaiting existing promise');
+            return await this._loading;
+        }
         return await this.loadModels();
     }
 
@@ -58,81 +65,103 @@ export class PaddleOCR {
     }
 
     async loadModels() {
-        // Non-blocking integrity ping
-        this.checkAssets();
-
-        try {
-            this.reportStatus('loading', '🟡 PaddleOCR: loading manifest…');
-            const res = await fetch(this.manifestUrl);
-            this.manifest = await res.json();
-
-            // Enforce strictly local model base path (Lite Version: Flat ./models/ directory)
-            const modelBase = "./models/";
-
-            if (this.manifest.normalize) {
-                this.normalize = this.manifest.normalize;
-            }
-
-            // Configure ONNX Runtime WASM Fallback
-            const isIsolated = self.crossOriginIsolated;
-            const threads = isIsolated ? Math.min(4, navigator.hardwareConcurrency || 1) : 1;
-            ort.env.wasm.numThreads = threads; 
-            ort.env.wasm.simd = true;
-            console.log(`[ENGINE] WASM Configuration — isolated: ${isIsolated}, numThreads: ${threads}`);
-
-            // Enable WebGPU backend for PaddleOCR when available (fallback to WASM).
-            const useWebGPU = await isWebGPUSupported();
-            const executionProviders = useWebGPU ? ['webgpu', 'wasm'] : ['wasm'];
-
-            // Load detection model (Hybrid: Remote Priority)
-            this.reportStatus('loading', '🟡 PaddleOCR: loading detection model…');
-            // Load detection model strictly from local models folder
-            const detPath = modelBase + this.manifest.det.path;
-            let detBuffer = await fetchWithProgress(
-                detPath,
-                (p) => this.reportStatus('loading', `🟡 PaddleOCR: Loading ${(p * 50).toFixed(0)}%`)
-            );
-            this.detSession = await ort.InferenceSession.create(detBuffer, { executionProviders });
-            const detProvider = this.detSession.executionProvider || 'unknown';
-            console.log(`[ENGINE] PaddleOCR Detection Session — Active Backend: ${detProvider}`);
-            
-            // Truth-Sync: Report actual backend to UI
-            this.reportStatus('backend', { type: detProvider.toLowerCase().includes('webgpu') ? 'webgpu' : 'wasm' });
-
-            detBuffer = null; // Memory Guard: Release buffer immediately after session creation
-            await new Promise(resolve => setTimeout(resolve, 50)); // Memory Guard: Yield to allow GC breathing room
-
-            // Load recognition model
-            this.reportStatus('loading', '🟡 PaddleOCR: loading recognition model…');
-            // Load recognition model strictly from local models folder
-            const recPath = modelBase + this.manifest.rec.path;
-            let recBuffer = await fetchWithProgress(
-                recPath,
-                (p) => this.reportStatus('loading', `🟡 PaddleOCR: Loading ${(50 + p * 50).toFixed(0)}%`)
-            );
-            this.recSession = await ort.InferenceSession.create(recBuffer, { executionProviders });
-            console.log(`[ENGINE] PaddleOCR Recognition Session — Active Backend: ${this.recSession.executionProvider || 'unknown'}`);
-            recBuffer = null; // Memory Guard: Release buffer
-
-            // Load dictionary
-            this.reportStatus('loading', '🟡 PaddleOCR: loading dictionary…');
-            const dictRes = await fetch(modelBase + "dict.txt");
-            const dictText = await dictRes.text();
-            this.dict = dictText.split(/\r?\n/);
-            if (this.dict.length > 0 && this.dict[this.dict.length - 1] === "") {
-                this.dict.pop();
-            }
-
-            // Warm-up WebGPU Shaders (if active)
-            await this.warmUp();
-
-            this.isLoaded = true;
-            this.reportStatus('ready', '🟢 PaddleOCR: ready.');
-        } catch (err) {
-            console.error("PaddleOCR: Load Error:", err);
-            this.reportStatus('error', '🔴 PaddleOCR: Load Failed.');
-            throw err;
+        if (this._loading) {
+            console.log('[DIAG-PADDLE] loadModels() re-entry guard — returning existing promise');
+            return await this._loading;
         }
+        console.log('[DIAG-PADDLE] loadModels() starting fresh');
+        console.time('paddle-loadModels');
+        this._loading = (async () => {
+            // Non-blocking integrity ping
+            this.checkAssets();
+
+            try {
+                this.reportStatus('loading', '🟡 PaddleOCR: loading manifest…');
+                const res = await fetch(this.manifestUrl);
+                this.manifest = await res.json();
+
+                // Enforce strictly local model base path (Lite Version: Flat ./models/ directory)
+                const modelBase = "./models/";
+
+                if (this.manifest.normalize) {
+                    this.normalize = this.manifest.normalize;
+                }
+
+                // Configure ONNX Runtime WASM Fallback
+                const isIsolated = self.crossOriginIsolated;
+                const threads = isIsolated ? Math.min(4, navigator.hardwareConcurrency || 1) : 1;
+                ort.env.wasm.numThreads = threads;
+                ort.env.wasm.simd = true;
+                console.log(`[ENGINE] WASM Configuration — isolated: ${isIsolated}, numThreads: ${threads}`);
+
+                // Enable WebGPU backend for PaddleOCR when available (fallback to WASM).
+                const useWebGPU = await isWebGPUSupported();
+                const executionProviders = useWebGPU ? ['webgpu', 'wasm'] : ['wasm'];
+
+                // Load detection model (Hybrid: Remote Priority)
+                this.reportStatus('loading', '🟡 PaddleOCR: loading detection model…');
+                // Load detection model strictly from local models folder
+                const detPath = modelBase + this.manifest.det.path;
+                let detBuffer = await fetchWithProgress(
+                    detPath,
+                    (p) => this.reportStatus('loading', `🟡 PaddleOCR: Loading ${(p * 50).toFixed(0)}%`)
+                );
+                console.log(`[DIAG-PADDLE] det.onnx fetched (${detBuffer.byteLength} bytes), creating InferenceSession...`);
+                console.time('paddle-det-session');
+                this.detSession = await ort.InferenceSession.create(detBuffer, { executionProviders });
+                console.timeEnd('paddle-det-session');
+                const detProvider = this.detSession.executionProvider || 'unknown';
+                console.log(`[ENGINE] PaddleOCR Detection Session — Active Backend: ${detProvider}`);
+                
+                // Truth-Sync: Report actual backend to UI
+                this.reportStatus('backend', { type: detProvider.toLowerCase().includes('webgpu') ? 'webgpu' : 'wasm' });
+
+                detBuffer = null; // Memory Guard: Release buffer immediately after session creation
+                await new Promise(resolve => setTimeout(resolve, 50)); // Memory Guard: Yield to allow GC breathing room
+
+                // Load recognition model
+                this.reportStatus('loading', '🟡 PaddleOCR: loading recognition model…');
+                // Load recognition model strictly from local models folder
+                const recPath = modelBase + this.manifest.rec.path;
+                let recBuffer = await fetchWithProgress(
+                    recPath,
+                    (p) => this.reportStatus('loading', `🟡 PaddleOCR: Loading ${(50 + p * 50).toFixed(0)}%`)
+                );
+                console.log(`[DIAG-PADDLE] rec.onnx fetched (${recBuffer.byteLength} bytes), creating InferenceSession...`);
+                console.time('paddle-rec-session');
+                this.recSession = await ort.InferenceSession.create(recBuffer, { executionProviders });
+                console.timeEnd('paddle-rec-session');
+                console.log(`[ENGINE] PaddleOCR Recognition Session — Active Backend: ${this.recSession.executionProvider || 'unknown'}`);
+                recBuffer = null; // Memory Guard: Release buffer
+
+                // Load dictionary
+                this.reportStatus('loading', '🟡 PaddleOCR: loading dictionary…');
+                const dictRes = await fetch(modelBase + "dict.txt");
+                const dictText = await dictRes.text();
+                this.dict = dictText.split(/\r?\n/);
+                if (this.dict.length > 0 && this.dict[this.dict.length - 1] === "") {
+                    this.dict.pop();
+                }
+
+                // Warm-up WebGPU Shaders (if active)
+                console.log('[DIAG-PADDLE] Starting warmUp...');
+                console.time('paddle-warmup');
+                await this.warmUp();
+                console.timeEnd('paddle-warmup');
+
+                this.isLoaded = true;
+                this.reportStatus('ready', '🟢 PaddleOCR: ready.');
+                console.log('[DIAG-PADDLE] loadModels() completed successfully');
+            } catch (err) {
+                console.error("PaddleOCR: Load Error:", err);
+                this.reportStatus('error', '🔴 PaddleOCR: Load Failed.');
+                throw err;
+            } finally {
+                console.timeEnd('paddle-loadModels');
+                this._loading = null; // Clear guard so reload is possible
+            }
+        })();
+        return await this._loading;
     }
 
     /**
@@ -140,9 +169,13 @@ export class PaddleOCR {
      * Forces the browser to compile shaders during load rather than during first run.
      */
     async warmUp() {
-        if (!this.detSession || !this.recSession) return;
+        if (!this.detSession || !this.recSession) {
+            console.log('[DIAG-PADDLE] warmUp skipped — sessions not ready');
+            return;
+        }
         
         try {
+            console.log('[DIAG-PADDLE] warmUp: starting detection model warm-up (960x960)...');
             // Micro-yield to ensure UI responsiveness
             await new Promise(r => setTimeout(r, 0));
 
@@ -151,17 +184,24 @@ export class PaddleOCR {
             const detDummy = new ort.Tensor('float32', new Float32Array(1 * 3 * 960 * 960), detShape);
             const detFeeds = {};
             detFeeds[this.detSession.inputNames[0]] = detDummy;
+            console.log('[DIAG-PADDLE] warmUp: running detSession.run()...');
+            console.time('paddle-warmup-det');
             const detOutput = await this.detSession.run(detFeeds);
+            console.timeEnd('paddle-warmup-det');
             // Explicit memory cleanup for warm-up outputs
             Object.keys(detFeeds).forEach(k => detFeeds[k] = null);
             if (detOutput) Object.keys(detOutput).forEach(k => detOutput[k] = null);
 
+            console.log('[DIAG-PADDLE] warmUp: starting recognition model warm-up (48x320)...');
             // Warm up Recognition Model (48x320)
             const recShape = [1, 3, 48, 320];
             const recDummy = new ort.Tensor('float32', new Float32Array(1 * 3 * 48 * 320), recShape);
             const recFeeds = {};
             recFeeds[this.recSession.inputNames[0]] = recDummy;
+            console.log('[DIAG-PADDLE] warmUp: running recSession.run()...');
+            console.time('paddle-warmup-rec');
             const recOutput = await this.recSession.run(recFeeds);
+            console.timeEnd('paddle-warmup-rec');
             // Explicit memory cleanup for warm-up outputs
             Object.keys(recFeeds).forEach(k => recFeeds[k] = null);
             if (recOutput) Object.keys(recOutput).forEach(k => recOutput[k] = null);
