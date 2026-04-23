@@ -1,4 +1,6 @@
-# PersonalOCR Lite — Gold v3.1 Edition
+# PersonalOCR Lite — v4.0
+
+> **Full version available at [personalocr.pages.dev](https://personalocr.pages.dev/)** — the main [**personalOCR**](https://github.com/RoboZilina/personalOCR) repository includes all engines, advanced features, and the latest updates.
 
 **PersonalOCR Lite** is a high-performance, browser-only Japanese OCR suite optimized for **GitHub Pages** and static hosting environments. This version unites the surgical hardening of the **Gold v3.1** baseline with a streamlined, MangaOCR‑free architecture to ensure 100% compatibility with hosting size limitations.
 
@@ -65,3 +67,7 @@ MIT License. All OCR models belong to their respective authors.
 
 ## 📝 Project Context
 This branch represents the unification of the **Gold v3.1** stability standards with the **Lite** portability requirements. It is the definitive build for users requiring a standalone, crash-proof OCR solution without the storage overhead of Transformers models.
+
+---
+
+> 🔗 **Main project**: [personalOCR](https://github.com/RoboZilina/personalOCR) — Full-size version with all engines and advanced features hosted at [personalocr.pages.dev](https://personalocr.pages.dev/).

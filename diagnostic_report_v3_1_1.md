@@ -1,4 +1,4 @@
-# Diagnostic Report: UI Initialization Race Condition (v3.1.1 Gold) — RESOLVED
+# Diagnostic Report: UI Initialization Race Condition (v4.0 Gold) — RESOLVED
 
 ## 📌 Executive Summary
 ✅ **RESOLVED** — The race condition has been eliminated at the root cause level. DOM element declarations have been reverted to `const` (matching the golden baseline), removing the need for deferred reassignment in `globalInitialize()`.
@@ -13,7 +13,7 @@ In the **v3.0 (Lite)** branch, UI variables used `const` — correct and safe:
 const selectWindowBtn = document.getElementById('select-window-btn'); // OK
 ```
 
-In the **v3.1.1 (Gold)** branch, these were incorrectly changed to `let` variables, requiring late reassignment in `globalInitialize()`:
+In the **v4.0 (Gold)** branch, these were incorrectly changed to `let` variables, requiring late reassignment in `globalInitialize()`:
 ```javascript
 // BEFORE (broken): let + late reassignment
 let selectWindowBtn = document.getElementById('select-window-btn');

@@ -1,7 +1,7 @@
 // === VERSION — Update APP_VERSION on every release ===
 // This is the ONLY version string in the project.
 // Serve this file with Cache-Control: no-cache in production.
-const APP_VERSION = 'v3.1.1-NOMANGA';
+const APP_VERSION = 'v4.0.0-NOMANGA';
 const CACHE_NAME = `vn-ocr-cache-${APP_VERSION}`;
 const MODEL_CACHE_NAME = `vn-ocr-models-${APP_VERSION}`;
 const ASSETS = [

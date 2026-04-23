@@ -2251,7 +2251,7 @@ document.addEventListener('DOMContentLoaded', globalInitialize);
 
 /** Public API Namespace (Auditability Phase) */
 window.VNOCR = {
-    version: '3.1.1-NOMANGA',
+    version: '4.0.0-NOMANGA',
     isReady: EngineManager.isReady,
     drawSelectionRect: window.drawSelectionRect,
     captureFrame: window.captureFrame,
