@@ -131,6 +131,10 @@ export function applySettingsToUI() {
     const warningCheckbox = document.querySelector("#banner-nocall-checkbox");
     if (warningCheckbox) warningCheckbox.checked = !currentSettings.showHeavyWarning;
 
+    // Also sync the modal checkbox state from persisted settings
+    const heavyWarningCheckbox = document.querySelector("#heavy-warning-checkbox");
+    if (heavyWarningCheckbox) heavyWarningCheckbox.checked = !currentSettings.showHeavyWarning;
+
     // 5. Size modifiers via body classes
     const currentTextAreaSize = currentSettings.textAreaSize || 'standard';
     document.body.classList.remove('text-area-small', 'text-area-standard', 'text-area-large');
@@ -165,14 +169,12 @@ export function applyUIToSettings() {
     const autoToggle = document.querySelector("#auto-capture-toggle");
     if (autoToggle) currentSettings.autoCapture = autoToggle.checked;
 
-    const warningCheckbox = document.querySelector("#heavy-warning-checkbox");
-    if (warningCheckbox) {
-        const oldVal = currentSettings.showHeavyWarning;
-        currentSettings.showHeavyWarning = !warningCheckbox.checked;
-        if (oldVal !== currentSettings.showHeavyWarning) {
-            console.log(`[DIAG-SETTINGS] applyUIToSettings changed showHeavyWarning: ${oldVal} → ${currentSettings.showHeavyWarning} (checkbox.checked=${warningCheckbox.checked})`);
-        }
-    }
+    // NOTE: showHeavyWarning is NOT derived from the modal checkbox here.
+    // The modal checkbox state is only meaningful when the modal is visible and
+    // the user is actively interacting with it. Deriving showHeavyWarning from it
+    // when the modal is hidden would silently re-enable the warning.
+    // showHeavyWarning is managed exclusively by the checkbox onchange handlers
+    // in initSettings() and the paddle-continue handler.
 
     // Theme and history visibility are usually toggled via buttons,
     // so they are handled directly via setSetting in their click handlers,
